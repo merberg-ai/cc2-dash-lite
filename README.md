@@ -18,9 +18,11 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - Local MQTT-over-WebSocket bridge for the stock portal
 - Camera stream proxy/wake endpoint
 - File Manager page for G-code files and timelapse/history video records
+- Filament Manager page for stock-style CANVAS/MMS filament tray information
 - G-code file list/detail/start/delete endpoints from the stock portal command set
 - Timelapse/history load/export/download/delete controls where firmware allows it
 - Configurable dashboard card visibility/order
+- Configurable File Manager and Filament Manager menu visibility
 - Configurable quick-action button visibility/order/confirmation
 - Settings → Printer Manager for scan/manual add/edit/remove/default printer control
 - JSON-based theme system
@@ -40,7 +42,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.2.8.zip
+unzip cc2-dash-lite-1.2.9.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -210,12 +212,38 @@ scanner
 
 Portal AI watchdog changes and vision state changes are logged automatically. Vision logs include heuristic flags such as `dark_frame`, `low_contrast_frame`, `high_fine_edge_density`, and `fine_edge_density_jump` when they trigger.
 
+## Filament Manager
+
+The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**:
+
+```text
+/filaments
+```
+
+It mimics the stock Elegoo filament information panel using cc2-dash-lite theme cards. It reads the CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape:
+
+```text
+mmsSystemName
+mmsList[]
+trayList[]
+trayName / trayId
+filamentType / filamentName / filamentColor
+vendor / serialNumber / weight / diameter
+temperature ranges when reported
+tray status
+```
+
+The page shows summary tiles, tray cards, filament sensor state, and an Auto Filament Refill control. Auto refill uses method `2004` with compatible enable/disable parameter aliases. This is treated as a normal command, not a dangerous command, but the printer still needs commands enabled in **Settings → Printer Manager**.
+
+If the Combo/CANVAS system does not report tray data yet, the page falls back to telemetry-only information and tells you that no filament data was available. Tap **Refresh** after the printer has had time to publish telemetry.
+
 ## Commands and safety
 
 The CC2 command methods from the older cc2-dash source are included. Current quick actions map to:
 
 ```text
 File Manager       -> methods 1044, 1046, 1047, 1051, 1020, 1038
+Filament Manager   -> method 2005 for CANVAS status, method 2004 for Auto Filament Refill
 Light Toggle       -> method 1029
 Pause Print        -> method 1021
 Resume Print       -> method 1023

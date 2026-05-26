@@ -51,6 +51,7 @@ from .cc2.commands import (
     START_PRINT,
     HISTORY_DELETE,
     SET_LIGHT,
+    SET_AUTO_REFILL,
     SET_PRINT_SPEED,
     START_VIDEO_STREAM,
     STOP_PRINT,
@@ -62,6 +63,7 @@ from .cc2.commands import (
     file_thumbnail_params,
     start_print_params,
     timelapse_export_params,
+    auto_refill_params,
     light_params,
     method_allowed,
     print_speed_params,
@@ -99,6 +101,210 @@ SPEED_PRESETS = {
     2: "Sport",
     3: "Ludicrous",
 }
+
+FILAMENT_TRAY_STATUS = {
+    0: "empty",
+    1: "loaded",
+    2: "unavailable",
+    3: "ready",
+    4: "rfid detecting",
+    5: "busy",
+}
+
+
+def _dig(data: Any, *keys: str, default: Any = None) -> Any:
+    """Return the first matching key from a dict, accepting common case variants."""
+    if not isinstance(data, dict):
+        return default
+    for key in keys:
+        variants = {
+            key,
+            key.lower(),
+            key.upper(),
+            key[:1].lower() + key[1:] if key else key,
+            key[:1].upper() + key[1:] if key else key,
+        }
+        for variant in variants:
+            if variant in data:
+                return data[variant]
+    return default
+
+
+def _as_list(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return list(value.values())
+    return []
+
+
+def _find_filament_root(node: Any, depth: int = 0) -> dict[str, Any] | None:
+    """Find the stock-style MMS/filament object inside raw CC2 status blobs.
+
+    Elegoo's web tooling works with an object shaped like
+    {mmsSystemName, mmsList:[{trayList:[...]}]}. The firmware has exposed that
+    through slightly different wrappers in different places, so this walks a
+    small JSON tree looking for mmsList/trayList rather than hard-coding one
+    exact path.
+    """
+    if depth > 6:
+        return None
+    if isinstance(node, dict):
+        if any(k in node for k in ("mmsList", "MmsList", "mms_list", "trayList", "TrayList", "tray_list")):
+            return node
+        preferred = ["canvas", "mmsInfo", "mms_info", "mms", "ams", "filament", "filaments", "result", "data"]
+        for key in preferred:
+            if key in node:
+                found = _find_filament_root(node[key], depth + 1)
+                if found:
+                    return found
+        for value in node.values():
+            found = _find_filament_root(value, depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node[:12]:
+            found = _find_filament_root(item, depth + 1)
+            if found:
+                return found
+    return None
+
+
+def _boolish(value: Any) -> bool | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled", "enable"}:
+        return True
+    if text in {"0", "false", "no", "off", "disabled", "disable"}:
+        return False
+    return None
+
+
+def _color_value(value: Any) -> str:
+    if isinstance(value, str) and value.strip():
+        color = value.strip()
+        if not color.startswith("#") and len(color) in (3, 6):
+            color = "#" + color
+        return color
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return "#%02x%02x%02x" % (int(value[0]), int(value[1]), int(value[2]))
+        except Exception:
+            pass
+    return "#8b8f9a"
+
+
+def _normalize_tray(tray: dict[str, Any], mms_id: str = "", index: int = 0) -> dict[str, Any]:
+    status_raw = _dig(tray, "status", "trayStatus", "TrayStatus")
+    try:
+        status_code = int(float(status_raw)) if status_raw not in (None, "") else None
+    except Exception:
+        status_code = None
+    tray_id = _dig(tray, "trayId", "id", "Id", default=str(index + 1))
+    name = _dig(tray, "trayName", "name", "Name", default=f"Slot {index + 1}")
+    ftype = _dig(tray, "filamentType", "type", "material", "Material", default="")
+    fname = _dig(tray, "filamentName", "name", "displayName", "settingName", default="")
+    color = _color_value(_dig(tray, "filamentColor", "color", "Colour", "Color"))
+    vendor = _dig(tray, "vendor", "brand", "manufacturer", default="")
+    active = status_code in (1, 3) or bool(ftype or fname)
+    return {
+        "mms_id": str(_dig(tray, "mmsId", default=mms_id) or mms_id),
+        "tray_id": str(tray_id or index + 1),
+        "tray_name": str(name or f"Slot {index + 1}"),
+        "filament_type": str(ftype or ""),
+        "filament_name": str(fname or ""),
+        "filament_color": color,
+        "vendor": str(vendor or ""),
+        "serial_number": str(_dig(tray, "serialNumber", "sn", "serial", default="") or ""),
+        "status": status_code,
+        "status_label": FILAMENT_TRAY_STATUS.get(status_code, f"status {status_code}" if status_code is not None else ("active" if active else "unknown")),
+        "active": active,
+        "weight_g": _dig(tray, "filamentWeight", "weight", "remain", "remaining", default=None),
+        "density": _dig(tray, "filamentDensity", "density", default=None),
+        "diameter": _dig(tray, "filamentDiameter", "diameter", default=None),
+        "min_nozzle_temp": _dig(tray, "minNozzleTemp", "nozzleTempMin", default=None),
+        "max_nozzle_temp": _dig(tray, "maxNozzleTemp", "nozzleTempMax", default=None),
+        "min_bed_temp": _dig(tray, "minBedTemp", "bedTempMin", default=None),
+        "max_bed_temp": _dig(tray, "maxBedTemp", "bedTempMax", default=None),
+        "setting_id": str(_dig(tray, "settingId", "filamentId", default="") or ""),
+        "raw": tray,
+    }
+
+
+def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict[str, Any] | None = None) -> dict[str, Any]:
+    snapshot = snapshot or {}
+    raw_status = snapshot.get("raw_status") or {}
+    normalized = snapshot.get("normalized") or {}
+    roots = [command_result, raw_status.get("canvas"), raw_status, snapshot]
+    root = None
+    for candidate in roots:
+        root = _find_filament_root(candidate)
+        if root:
+            break
+
+    mms_list_raw = []
+    system_name = "CANVAS"
+    connected = None
+    auto_refill = None
+    if root:
+        system_name = str(_dig(root, "mmsSystemName", "systemName", "name", default="CANVAS") or "CANVAS")
+        connected = _boolish(_dig(root, "connected", "isConnected", "mmsConnected", default=None))
+        auto_refill = _boolish(_dig(root, "autoRefill", "auto_refill", "autoRefillEnabled", "auto_refill_enabled", default=None))
+        mms_list_raw = _as_list(_dig(root, "mmsList", "mms_list", "MmsList", default=[]))
+        if not mms_list_raw:
+            trays = _as_list(_dig(root, "trayList", "tray_list", "TrayList", default=[]))
+            if trays:
+                mms_list_raw = [{"mmsId": "canvas-1", "mmsName": system_name, "trayList": trays}]
+
+    mms_list = []
+    trays_flat = []
+    for mms_index, mms in enumerate(mms_list_raw):
+        if not isinstance(mms, dict):
+            continue
+        mms_id = str(_dig(mms, "mmsId", "id", default=f"canvas-{mms_index + 1}") or f"canvas-{mms_index + 1}")
+        tray_list = _as_list(_dig(mms, "trayList", "tray_list", "TrayList", default=[]))
+        trays = [_normalize_tray(t, mms_id=mms_id, index=i) for i, t in enumerate(tray_list) if isinstance(t, dict)]
+        trays_flat.extend(trays)
+        mms_list.append({
+            "mms_id": mms_id,
+            "mms_name": str(_dig(mms, "mmsName", "name", default=f"CANVAS {mms_index + 1}") or f"CANVAS {mms_index + 1}"),
+            "connected": _boolish(_dig(mms, "connected", "isConnected", default=connected)),
+            "tray_count": len(trays),
+            "active_count": sum(1 for t in trays if t.get("active")),
+            "trays": trays,
+            "raw": mms,
+        })
+
+    sensor = (normalized.get("filament") or {}) if isinstance(normalized, dict) else {}
+    return {
+        "ok": True,
+        "printer": {
+            "id": snapshot.get("id"),
+            "name": snapshot.get("name"),
+            "host": snapshot.get("host"),
+            "connected": snapshot.get("connected"),
+            "registered": snapshot.get("registered"),
+        },
+        "system_name": system_name,
+        "connected": connected if connected is not None else bool(mms_list),
+        "auto_refill": auto_refill,
+        "mms_list": mms_list,
+        "trays": trays_flat,
+        "tray_count": len(trays_flat),
+        "active_count": sum(1 for t in trays_flat if t.get("active")),
+        "sensor": {
+            "enabled": sensor.get("sensor_enabled"),
+            "detected": sensor.get("detected"),
+        },
+        "source": "canvas_status" if root else "telemetry_only",
+        "raw_available": bool(root),
+        "raw": root or {},
+    }
 
 
 def _speed_label(mode: Any, raw_speed: Any = None, speed_percent: Any = None) -> str:
@@ -176,6 +382,10 @@ class CommandRequest(BaseModel):
 
 class LightRequest(BaseModel):
     on: bool
+
+
+class FilamentAutoRefillRequest(BaseModel):
+    enabled: bool
 
 
 class DeleteFileRequest(BaseModel):
@@ -435,6 +645,14 @@ async def files_page(request: Request):
     if needs_setup(cfg):
         return RedirectResponse("/setup")
     return templates.TemplateResponse("files.html", view_context(request))
+
+
+@app.get("/filaments", response_class=HTMLResponse)
+async def filaments_page(request: Request):
+    cfg = load_config()
+    if needs_setup(cfg):
+        return RedirectResponse("/setup")
+    return templates.TemplateResponse("filaments.html", view_context(request))
 
 
 @app.get("/portal", response_class=HTMLResponse)
@@ -1296,6 +1514,50 @@ async def api_action(action_id: str, req: ActionRequest | None = None):
     else:
         log("info", f"Action {action_id} sent", "command", printer=pid)
     return {"ok": True, "message": message, "result": result.get("result")}
+
+
+def _require_printer_running(printer_id: str) -> dict[str, Any]:
+    cfg = load_config()
+    pdata = (cfg.get("printers") or {}).get(printer_id)
+    if not pdata:
+        raise HTTPException(404, "Printer not configured")
+    if not runtime.get_client(printer_id):
+        runtime.start(printer_id, printer_dict_to_config(printer_id, pdata))
+    return pdata
+
+
+@app.get("/api/printers/{printer_id}/filaments")
+async def api_filaments(printer_id: str, refresh: bool = Query(False)):
+    pdata = _require_printer_running(printer_id)
+    command_result = None
+    # The stock Elegoo filament sync UI requests printer MMS/filament info. In
+    # the local MQTT protocol, method 2005 is the CANVAS/MMS status call used by
+    # this project already, so it is the safest read path we have.
+    if refresh:
+        try:
+            command_response = await asyncio.to_thread(_send_command, printer_id, GET_CANVAS_STATUS, {}, True, 12.0, False)
+            command_result = command_response.get("result", command_response) if isinstance(command_response, dict) else command_response
+        except Exception as exc:
+            log("warn", f"Filament refresh via CANVAS status failed: {exc}", "filament", printer=printer_id)
+    snap = runtime.snapshot(printer_id) or {}
+    info = _extract_filament_info(snap, command_result if isinstance(command_result, dict) else None)
+    info["printer_config"] = public_printer_dict(printer_dict_to_config(printer_id, pdata), include_secret=False)
+    return info
+
+
+@app.post("/api/printers/{printer_id}/filaments/refresh")
+async def api_filaments_refresh(printer_id: str):
+    return await api_filaments(printer_id, refresh=True)
+
+
+@app.post("/api/printers/{printer_id}/filaments/auto-refill")
+async def api_filaments_auto_refill(printer_id: str, body: FilamentAutoRefillRequest):
+    result = await asyncio.to_thread(_send_command, printer_id, SET_AUTO_REFILL, auto_refill_params(body.enabled), True, 12.0, False)
+    log("info", f"Auto filament refill set to {'on' if body.enabled else 'off'}", "filament", printer=printer_id)
+    info = await api_filaments(printer_id, refresh=True)
+    info["command_result"] = result
+    info["requested_auto_refill"] = body.enabled
+    return info
 
 
 @app.get("/api/printers/{printer_id}/files")

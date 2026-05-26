@@ -99,6 +99,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "printers": {},
     "features": {
         "file_manager_enabled": True,
+        "filament_manager_enabled": True,
     },
     "portal_ai": {
         "enabled": True,

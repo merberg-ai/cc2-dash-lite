@@ -57,6 +57,15 @@
           <label><input id="fileManagerEnabled" class="toggle" type="checkbox" {% if cfg.features.file_manager_enabled %}checked{% endif %}> show</label>
         </div>
       </div>
+      <div class="setting-row">
+        <div>
+          <strong>Filament Manager menu option</strong>
+          <small>Shows or hides the Filament link. The page remains available directly for testing.</small>
+        </div>
+        <div class="setting-controls">
+          <label><input id="filamentManagerEnabled" class="toggle" type="checkbox" {% if cfg.features.filament_manager_enabled %}checked{% endif %}> show</label>
+        </div>
+      </div>
     </div>
     <button id="saveMenuButton" class="button primary full"><span class="button-label">Save Menu</span></button>
   </article>

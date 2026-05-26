@@ -761,6 +761,7 @@
     if (saveMenu) saveMenu.addEventListener('click', async () => {
       cfg.features = cfg.features || {};
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
+      cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
       setButtonBusy(saveMenu, true, 'Saving...');
       try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Menu settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
       catch (err) { toast(err.message, 'error'); }
@@ -1049,6 +1050,111 @@
     box.innerHTML = `<strong>${esc(message)}</strong>${detail ? `<span>${esc(detail)}</span>` : ''}`;
   }
 
+  function filamentMetaLine(tray) {
+    const bits = [];
+    if (tray.vendor) bits.push(tray.vendor);
+    if (tray.filament_name && tray.filament_name !== tray.filament_type) bits.push(tray.filament_name);
+    if (tray.diameter) bits.push(`${tray.diameter}mm`);
+    if (tray.weight_g !== null && tray.weight_g !== undefined && tray.weight_g !== '') bits.push(`${tray.weight_g}g`);
+    const nozzle = [tray.min_nozzle_temp, tray.max_nozzle_temp].filter(v => v !== null && v !== undefined && v !== '').join('–');
+    const bed = [tray.min_bed_temp, tray.max_bed_temp].filter(v => v !== null && v !== undefined && v !== '').join('–');
+    if (nozzle) bits.push(`nozzle ${nozzle}°C`);
+    if (bed) bits.push(`bed ${bed}°C`);
+    if (tray.serial_number) bits.push(`SN ${tray.serial_number}`);
+    return bits.filter(Boolean).join(' · ');
+  }
+
+  function filamentStatusClass(tray) {
+    const label = String(tray?.status_label || '').toLowerCase();
+    if (tray?.active || label.includes('loaded') || label.includes('ready')) return 'active';
+    if (label.includes('empty')) return 'empty';
+    if (label.includes('busy') || label.includes('rfid')) return 'busy';
+    return 'unknown';
+  }
+
+  function renderFilaments(data) {
+    const list = $('#filamentList');
+    const trays = data?.trays || [];
+    setText('filamentSystemName', data?.system_name || 'CANVAS');
+    setText('filamentConnected', data?.connected ? 'connected' : (data?.raw_available ? 'reported' : 'unknown'));
+    setText('filamentActiveSlots', `${data?.active_count ?? 0} / ${data?.tray_count ?? 0}`);
+    const sensor = data?.sensor || {};
+    const sensorText = sensor.enabled === false ? 'disabled' : (sensor.detected === true ? 'detected' : (sensor.detected === false ? 'not detected' : 'unknown'));
+    setText('filamentSensor', sensorText);
+    const refill = data?.auto_refill;
+    const refillEl = $('#autoRefillState');
+    if (refillEl) {
+      refillEl.textContent = refill === true ? 'enabled' : (refill === false ? 'disabled' : 'unknown');
+      refillEl.className = `pill auto-refill ${refill === true ? 'on' : (refill === false ? 'off' : 'unknown')}`;
+    }
+    if (!list) return;
+    if (!trays.length) {
+      list.className = 'filament-list empty';
+      list.innerHTML = `<strong>No filament data available from the printer.</strong><span>Make sure the CANVAS/Combo system is connected, wait for telemetry, then tap Refresh. Source: ${esc(data?.source || 'none')}.</span>`;
+      return;
+    }
+    const groups = data?.mms_list?.length ? data.mms_list : [{ mms_id: 'canvas', mms_name: data?.system_name || 'CANVAS', trays }];
+    list.className = 'filament-list';
+    list.innerHTML = groups.map(group => {
+      const groupTrays = group.trays || [];
+      return `<section class="mms-card">
+        <div class="mms-head">
+          <div><strong>${esc(group.mms_name || group.mms_id || 'CANVAS')}</strong><span>${esc(group.active_count ?? groupTrays.filter(t => t.active).length)} active · ${esc(group.tray_count ?? groupTrays.length)} slot(s)</span></div>
+          <span class="pill">${group.connected === false ? 'not connected' : 'connected'}</span>
+        </div>
+        <div class="tray-grid">
+          ${groupTrays.map(tray => {
+            const cls = filamentStatusClass(tray);
+            const label = tray.filament_type || tray.filament_name || (cls === 'empty' ? 'Empty' : 'Unknown');
+            const meta = filamentMetaLine(tray);
+            return `<article class="filament-tray ${cls}">
+              <div class="tray-color" style="--tray-color:${esc(tray.filament_color || '#8b8f9a')}"></div>
+              <div class="tray-main">
+                <div class="tray-title-row"><strong>${esc(tray.tray_name || tray.tray_id || 'Slot')}</strong><span>${esc(tray.status_label || 'unknown')}</span></div>
+                <div class="tray-material">${esc(label)}</div>
+                ${meta ? `<small>${esc(meta)}</small>` : '<small>No extra spool metadata reported.</small>'}
+              </div>
+            </article>`;
+          }).join('')}
+        </div>
+      </section>`;
+    }).join('');
+  }
+
+  async function loadFilaments(refresh = false, button = null) {
+    const list = $('#filamentList');
+    const loading = $('#filamentLoadStatus');
+    setBoxLoading(list, loading, true, 'Loading filament data...');
+    setButtonBusy(button, true, 'Loading...');
+    try {
+      const data = await printerApi(refresh ? '/filaments/refresh' : '/filaments', { method: refresh ? 'POST' : 'GET' });
+      renderFilaments(data);
+      const count = data?.tray_count ?? 0;
+      toast(count ? `Loaded ${count} filament tray slot(s).` : 'No CANVAS filament trays reported yet.', count ? 'success' : 'warn');
+      return data;
+    } catch (err) {
+      renderEmpty(list, 'Filament load failed.', err.message);
+      toast(err.message, 'error', 8000);
+    } finally {
+      setBoxLoading(null, loading, false);
+      setButtonBusy(button, false);
+    }
+  }
+
+  async function setAutoRefill(enabled, button) {
+    if (!confirm(`${enabled ? 'Enable' : 'Disable'} Auto Filament Refill?`)) return;
+    setButtonBusy(button, true, enabled ? 'Enabling...' : 'Disabling...');
+    try {
+      const data = await printerApi('/filaments/auto-refill', { method: 'POST', body: JSON.stringify({ enabled }) });
+      renderFilaments(data);
+      toast(`Auto Filament Refill ${enabled ? 'enabled' : 'disabled'}.`, 'success');
+    } catch (err) {
+      toast(err.message, 'error', 9000);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
   async function loadFileList() {
     const box = $('#fileList');
     const loading = $('#fileLoadStatus');
@@ -1302,9 +1408,17 @@
     $('#refreshTimelapseButton')?.addEventListener('click', loadTimelapseList);
   }
 
+  function initFilaments() {
+    $('#refreshFilamentsButton')?.addEventListener('click', e => loadFilaments(true, e.currentTarget));
+    $('#enableAutoRefillButton')?.addEventListener('click', e => setAutoRefill(true, e.currentTarget));
+    $('#disableAutoRefillButton')?.addEventListener('click', e => setAutoRefill(false, e.currentTarget));
+    loadFilaments(false);
+  }
+
   if (page === 'dashboard') initDashboard();
   if (page === 'setup') initSetup();
   if (page === 'settings') initSettings();
   if (page === 'logs') initLogs();
   if (page === 'files') initFiles();
+  if (page === 'filaments') initFilaments();
 })();

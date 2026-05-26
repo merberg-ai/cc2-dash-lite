@@ -382,6 +382,8 @@
       cfg.portal_ai.telemetry_rules_enabled = !!$('#aiTelemetryRules')?.checked;
       cfg.portal_ai.camera_rules_enabled = !!$('#aiCameraRules')?.checked;
       cfg.portal_ai.progress_stuck_minutes = Number($('#aiProgressStuckMinutes')?.value || 8);
+      cfg.portal_ai.multi_color_mode = $('#aiMultiColorMode')?.value || 'auto';
+      cfg.portal_ai.multi_color_progress_stuck_minutes = Number($('#aiMultiColorStuckMinutes')?.value || 30);
       cfg.portal_ai.stale_status_seconds = Number($('#aiStaleStatusSeconds')?.value || 75);
       cfg.portal_ai.feedback_enabled = !!$('#aiFeedbackEnabled')?.checked;
       cfg.portal_ai.auto_pause_enabled = !!$('#aiAutoPauseEnabled')?.checked;

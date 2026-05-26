@@ -295,3 +295,10 @@ Treat this as the known-good baseline before changing the file/timelapse system 
 ## v0.3.3 note
 
 The top menu now has a configurable **File Manager menu option** toggle under **Settings → Menu / Features**. Turn it off to hide the Files link while the file/timelapse implementation is still being refined. The underlying `/files` route and backend endpoints are left in place for testing and later fixes.
+
+
+## v1.1.1 notes
+
+- Portal AI adds configurable multi-color / filament-swap progress-stall grace.
+- Feedback labels are now also persisted to `data/ai_feedback.jsonl` for later tuning.
+

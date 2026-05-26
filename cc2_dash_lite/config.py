@@ -108,6 +108,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "opencv_rules_enabled": False,
         "vision_ai_enabled": False,
         "progress_stuck_minutes": 8,
+        "multi_color_mode": "auto",
+        "multi_color_progress_stuck_minutes": 30,
         "stale_status_seconds": 75,
         "feedback_enabled": True,
         "auto_pause_enabled": False,

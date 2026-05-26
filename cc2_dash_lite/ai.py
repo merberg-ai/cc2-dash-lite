@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
 import time
 from collections import deque
 from typing import Any, Deque
+
+from .config import DATA_DIR
 
 
 def _as_float(value: Any, default: float = 0.0) -> float:
@@ -46,6 +49,14 @@ class PortalAIDetector:
             "snapshot": snapshot or {},
         }
         self._feedback.append(row)
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            with (DATA_DIR / "ai_feedback.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            # Feedback should never break the dashboard. Keep the in-memory label even
+            # if disk persistence fails.
+            row["persist_error"] = str(exc)
         return row
 
     def recent_feedback(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -93,8 +104,19 @@ class PortalAIDetector:
         camera_info = (normalized.get("external") or {}).get("camera")
         camera_attr = (normalized.get("attributes") or {}).get("camera_connected")
         filament = normalized.get("filament") or {}
+        status_code = normalized.get("status_code")
+        sub_status_code = normalized.get("sub_status_code")
 
-        active_state = _text_contains(state_lower, "print", "paus", "resum", "stopp", "idle in print")
+        multi_color_mode = str(ai_cfg.get("multi_color_mode", "auto") or "auto").lower()
+        multi_color_grace_minutes = _as_float(ai_cfg.get("multi_color_progress_stuck_minutes"), 30.0)
+        filament_operation_state = (
+            _text_contains(state_lower, "filament operating", "extruder preheating")
+            or status_code in (3, 4, 13)
+            or sub_status_code in (1045, 1096)
+        )
+        multi_color_grace_active = multi_color_mode == "always" or (multi_color_mode == "auto" and filament_operation_state)
+
+        active_state = _text_contains(state_lower, "print", "paus", "resum", "stopp", "idle in print", "filament operating", "extruder preheating")
         has_print_markers = bool(file_name and file_name != "-" and progress < 99.9 and (hotend_target > 0 or bed_target > 0 or elapsed_sec > 0))
         active_print = bool(active_state or has_print_markers)
 
@@ -125,8 +147,11 @@ class PortalAIDetector:
             risk += 65
             reasons.append("Print appears stopped before reaching 100% completion.")
         if _text_contains(state_lower, "paused"):
-            risk += 12
-            reasons.append("Print is paused. This may be intentional, but it needs attention.")
+            if multi_color_grace_active:
+                positives.append("Pause/filament operation detected; using multi-color grace handling.")
+            else:
+                risk += 12
+                reasons.append("Print is paused. This may be intentional, but it needs attention.")
         if exceptions:
             risk += 45
             reasons.append(f"Printer reported exception status: {exceptions}.")
@@ -160,6 +185,9 @@ class PortalAIDetector:
                 reasons.append("Filament sensor reports no filament while printing.")
 
             stuck_minutes = _as_float(ai_cfg.get("progress_stuck_minutes"), 8.0)
+            effective_stuck_minutes = stuck_minutes
+            if multi_color_grace_active:
+                effective_stuck_minutes = max(stuck_minutes, multi_color_grace_minutes)
             last_progress = prev.get("progress")
             changed_at = prev.get("progress_changed_at") or now
             if last_progress is None or abs(progress - _as_float(last_progress)) >= 0.15:
@@ -169,12 +197,20 @@ class PortalAIDetector:
                 positives.append("Progress has moved recently.")
             else:
                 stuck_for = (now - changed_at) / 60.0
-                if progress > 0.1 and stuck_for >= stuck_minutes:
-                    risk += 45
-                    reasons.append(f"Progress has not changed for about {stuck_for:.1f} minutes.")
-                elif progress > 0.1 and stuck_for >= max(2.0, stuck_minutes / 2.0):
-                    risk += 18
-                    reasons.append(f"Progress has been unchanged for about {stuck_for:.1f} minutes.")
+                if progress > 0.1 and multi_color_grace_active and stuck_for < effective_stuck_minutes:
+                    positives.append(f"Progress is unchanged, but multi-color/filament-swap grace is active ({stuck_for:.1f}/{effective_stuck_minutes:.0f}m).")
+                elif progress > 0.1 and stuck_for >= effective_stuck_minutes:
+                    risk += 28 if multi_color_grace_active else 45
+                    if multi_color_grace_active:
+                        reasons.append(f"Progress has not changed for about {stuck_for:.1f} minutes, beyond the multi-color grace window.")
+                    else:
+                        reasons.append(f"Progress has not changed for about {stuck_for:.1f} minutes.")
+                elif progress > 0.1 and stuck_for >= max(2.0, effective_stuck_minutes / 2.0):
+                    risk += 8 if multi_color_grace_active else 18
+                    if multi_color_grace_active:
+                        reasons.append(f"Progress has been unchanged for about {stuck_for:.1f} minutes during multi-color grace.")
+                    else:
+                        reasons.append(f"Progress has been unchanged for about {stuck_for:.1f} minutes.")
         else:
             prev["progress"] = progress
             prev["progress_changed_at"] = now
@@ -232,6 +268,9 @@ class PortalAIDetector:
             "reasons": reasons[:5],
             "positives": positives[:5],
             "active_print": active_print,
+            "multi_color_grace_active": bool(multi_color_grace_active),
+            "multi_color_mode": multi_color_mode,
+            "progress_stuck_threshold_minutes": effective_stuck_minutes if active_print else _as_float(ai_cfg.get("progress_stuck_minutes"), 8.0),
             "last_check_epoch": now,
             "last_check": time.strftime("%H:%M:%S"),
             "rules": {

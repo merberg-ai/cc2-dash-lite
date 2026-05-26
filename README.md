@@ -17,6 +17,9 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - Stock Elegoo/OctoEverywhere-style portal bundle from the older cc2-dash source
 - Local MQTT-over-WebSocket bridge for the stock portal
 - Camera stream proxy/wake endpoint
+- File Manager page for G-code files and timelapse/history video records
+- G-code file list/detail/start/delete endpoints from the stock portal command set
+- Timelapse/history load/export/download/delete controls where firmware allows it
 - Configurable dashboard card visibility/order
 - Configurable quick-action button visibility/order/confirmation
 - JSON-based theme system
@@ -117,6 +120,7 @@ That bridge shuttles browser WebSocket MQTT frames to the printer's TCP MQTT por
 The CC2 command methods from the older cc2-dash source are included. Current quick actions map to:
 
 ```text
+File Manager       -> methods 1044, 1046, 1047, 1051, 1020, 1038
 Light Toggle       -> method 1029
 Pause Print        -> method 1021
 Resume Print       -> method 1023
@@ -203,3 +207,23 @@ cc2-dash-lite/
 - Add drag/drop card ordering
 - Add import/export config buttons
 - Add a printer adapter plugin layer
+
+
+## File Manager
+
+The top navigation now includes:
+
+```text
+Files
+```
+
+That page has two separate panels:
+
+```text
+G-code Files        -> local / USB file list, info, print, delete
+Timelapse Videos   -> timelapse/history records, download/export/delete
+```
+
+This uses the same CC2/Elegoo MQTT command family that the stock portal code uses. Some firmware builds return slightly different JSON shapes, so the frontend tries several known list keys before giving up.
+
+Safety note: `Start Print`, `Delete File`, and `Delete History/Timelapse` are blocked by the backend unless that printer has dangerous commands enabled. That is intentional because phone thumbs are tiny chaos engines.

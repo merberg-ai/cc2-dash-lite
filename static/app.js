@@ -83,6 +83,32 @@
       const rows = (ai.reasons && ai.reasons.length ? ai.reasons : ['No warning rules are currently triggered.']).slice(0, 5);
       reasons.innerHTML = rows.map(r => `<li>${esc(r)}</li>`).join('');
     }
+    const vision = ai.vision || ai.vision_ai || {};
+    const visionBox = $('#aiVisionBox');
+    if (visionBox) {
+      if (!cfg?.portal_ai?.vision_ai_enabled) {
+        visionBox.classList.add('hidden');
+        return;
+      }
+      visionBox.classList.remove('hidden');
+      const vState = vision.visual_state || 'pending';
+      const vSummary = vision.summary || 'Waiting for a vision check.';
+      const heur = vision.heuristics || {};
+      const heurWarnings = Array.isArray(heur.warnings) && heur.warnings.length ? `flags ${heur.warnings.join(', ')}` : '';
+      const heurMetrics = Number.isFinite(Number(heur.mean_luma)) ? `luma ${Number(heur.mean_luma).toFixed(0)} · contrast ${Number(heur.contrast || 0).toFixed(0)} · edge ${Number(heur.edge_density || 0).toFixed(3)}` : '';
+      const vMeta = [
+        vision.model ? `model ${vision.model}` : '',
+        vision.last_check ? `checked ${vision.last_check}` : '',
+        Number.isFinite(Number(vision.confidence)) ? `conf ${Number(vision.confidence)}%` : '',
+        Number.isFinite(Number(vision.severity)) ? `severity ${Number(vision.severity)}%` : '',
+        vision.consecutive_bad ? `${vision.consecutive_bad}/${vision.required_bad_checks || '?'} bad` : '',
+        heurWarnings,
+        heurMetrics
+      ].filter(Boolean).join(' · ');
+      const img = vision.frame?.latest_url ? `<img class="vision-thumb" src="${esc(vision.frame.latest_url)}" alt="Latest vision frame" loading="lazy">` : '';
+      visionBox.className = `ai-vision-box ${esc(vState)}`;
+      visionBox.innerHTML = `${img}<div><strong>Vision: ${esc(String(vState).replace(/_/g, ' '))}</strong><span>${esc(vSummary)}</span>${vMeta ? `<small>${esc(vMeta)}</small>` : ''}</div>`;
+    }
   }
 
   window.cc2CameraFailed = function () {
@@ -110,6 +136,9 @@
       setText('printTime', st.print_time || '-');
       setText('timeLeft', st.time_left || '-');
       setText('completion', st.completion || `${progress.toFixed(1)}%`);
+      const speedText = st.speed_setting || st.speed_mode_name || (st.speed_percent ? `${st.speed_percent}%` : '-') || '-';
+      setText('currentSpeed', speedText);
+      setText('currentSpeedBrief', speedText);
       setText('filamentUsed', st.filament_used || '-');
       setText('hotendTemp', tempLine(st.hotend_current, st.hotend_target));
       setText('bedTemp', tempLine(st.bed_current, st.bed_target));
@@ -156,8 +185,20 @@
         if (!printerId) return toast('No printer configured for AI feedback.', 'warn');
         setButtonBusy(btn, true, 'Saving...');
         try {
-          await api(`/api/printers/${encodeURIComponent(printerId)}/ai/feedback`, { method:'POST', body: JSON.stringify({ label }) });
-          toast('Portal AI feedback saved', 'success');
+          const data = await api(`/api/printers/${encodeURIComponent(printerId)}/ai/feedback`, {
+            method:'POST',
+            body: JSON.stringify({
+              label,
+              context: {
+                page,
+                camera_visible: !!$('#cameraStream') && !$('#cameraStream').classList.contains('hidden'),
+                saved_from: 'dashboard_feedback_button',
+                user_agent: navigator.userAgent || ''
+              }
+            })
+          });
+          const frameMsg = data?.frame?.captured ? ' + frame captured' : ' (no frame yet)';
+          toast(`Portal AI feedback saved${frameMsg}`, data?.frame?.captured ? 'success' : 'warn');
         } catch (err) {
           toast(err.message, 'error', 7000);
         } finally {
@@ -173,7 +214,12 @@
         if (requires && !confirm(btn.dataset.confirm || 'Are you sure?')) return;
         setButtonBusy(btn, true, btn.dataset.spinnerText || 'Sending...');
         try {
-          const data = await api(`/api/action/${action}`, { method: 'POST', body: JSON.stringify({}) });
+          const body = {};
+          if (action === 'set_speed_preset') {
+            const select = btn.closest('.speed-action-row')?.querySelector('.speed-preset-select');
+            body.params = { mode: Number(select?.value ?? 1) };
+          }
+          const data = await api(`/api/action/${action}`, { method: 'POST', body: JSON.stringify(body) });
           toast(data.message || 'Command sent', data.ok ? 'success' : 'warn');
           await refreshDashboard();
         } catch (err) {
@@ -312,14 +358,14 @@
     if (actionBox) {
       actionBox.innerHTML = Object.entries(cfg.actions || {}).sort((a,b)=>(a[1].order||99)-(b[1].order||99)).map(([id,a]) => `
         <div class="setting-row" data-action-id="${id}">
-          <div><strong>${a.label || id}</strong><small>${id}</small></div>
-          <div class="setting-controls">
+          <div><strong>${esc(a.label || id)}</strong><small>${esc(id)}${id === 'set_speed_preset' ? ' · preset is chosen from the dashboard button' : ''}</small></div>
+          <div class="setting-controls action-controls">
+            <input class="input action-label" type="text" value="${esc(a.label || id)}" title="Button label">
             <label><input class="toggle action-visible" type="checkbox" ${a.visible ? 'checked' : ''}> visible</label>
             <label><input class="toggle action-confirm" type="checkbox" ${a.requires_confirm ? 'checked' : ''}> confirm</label>
-            <input class="input action-order" type="number" value="${a.order ?? 99}">
+            <input class="input action-order" type="number" value="${a.order ?? 99}" title="Order">
           </div>
-        </div>
-      `).join('');
+        </div>`).join('');
     }
 
     const printerBox = $('#printerSettings');
@@ -334,10 +380,56 @@
     }
   }
 
+
+
+  function setInlineStatus(id, message, tone = '') {
+    const el = $('#' + id);
+    if (!el) return;
+    el.textContent = message;
+    el.className = `inline-status ${tone || ''}`.trim();
+  }
+
+  function ollamaBaseUrlFromSettings() {
+    return $('#aiOllamaBaseUrl')?.value?.trim() || cfg?.portal_ai?.ollama_base_url || 'http://localhost:11434';
+  }
+
+  function selectedOllamaModel() {
+    return $('#aiOllamaVisionModel')?.value?.trim() || cfg?.portal_ai?.ollama_vision_model || 'llava';
+  }
+
+  function populateOllamaModelSelect(models, preferred) {
+    const select = $('#aiOllamaVisionModel');
+    if (!select) return;
+    const current = preferred || select.value || select.dataset.currentModel || cfg?.portal_ai?.ollama_vision_model || 'llava';
+    const unique = Array.from(new Set([current, ...(models || [])].filter(Boolean)));
+    select.innerHTML = unique.map(m => `<option value="${esc(m)}">${esc(m)}${m === current && !(models || []).includes(m) ? ' (saved)' : ''}</option>`).join('');
+    select.value = current;
+  }
+
+  async function loadOllamaModels(button = null) {
+    const base = ollamaBaseUrlFromSettings();
+    const current = selectedOllamaModel();
+    setButtonBusy(button, true, 'Loading...');
+    setInlineStatus('ollamaModelStatus', 'Contacting Ollama...', '');
+    try {
+      const data = await api(`/api/vision/models?base_url=${encodeURIComponent(base)}`);
+      const models = data.models || [];
+      populateOllamaModelSelect(models, current);
+      setInlineStatus('ollamaModelStatus', models.length ? `Loaded ${models.length} model(s) from ${data.base_url || base}.` : `Ollama responded, but no models were returned.`, models.length ? 'good' : 'warn');
+      return data;
+    } catch (err) {
+      setInlineStatus('ollamaModelStatus', err.message, 'bad');
+      throw err;
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
   function initSettings() {
     loadFreshConfig().then(data => {
       populateFontSelects(data.font_stacks || []);
       renderSettings();
+      populateOllamaModelSelect([], cfg?.portal_ai?.ollama_vision_model || 'llava');
       const editor = $('#configEditor');
       if (editor) editor.value = JSON.stringify(cfg, null, 2);
     }).catch(err => toast(err.message, 'error'));
@@ -376,6 +468,55 @@
       finally { setButtonBusy(saveMenu, false); }
     });
 
+    const refreshOllamaModels = $('#refreshOllamaModelsButton');
+    if (refreshOllamaModels) refreshOllamaModels.addEventListener('click', async () => {
+      try {
+        const data = await loadOllamaModels(refreshOllamaModels);
+        const models = (data.models || []).slice(0, 8).join(', ') || 'No models returned';
+        toast(`Ollama models loaded: ${models}`, 'success', 8000);
+      } catch (err) {
+        toast(err.message, 'error', 9000);
+      }
+    });
+
+    const testOllama = $('#testOllamaButton');
+    if (testOllama) testOllama.addEventListener('click', async () => {
+      setButtonBusy(testOllama, true, 'Testing...');
+      try {
+        const data = await loadOllamaModels();
+        const model = selectedOllamaModel();
+        const present = (data.models || []).includes(model);
+        setInlineStatus('ollamaModelStatus', present ? `Ready: ${model} is installed on ${data.base_url}.` : `Ollama is reachable, but ${model} is not in the installed list.`, present ? 'good' : 'warn');
+        toast(present ? `Ollama reachable and ${model} is installed.` : `Ollama reachable, but selected model was not listed.`, present ? 'success' : 'warn', 8000);
+      } catch (err) {
+        toast(err.message, 'error', 9000);
+      } finally {
+        setButtonBusy(testOllama, false);
+      }
+    });
+
+    const pullOllamaModel = $('#pullOllamaModelButton');
+    if (pullOllamaModel) pullOllamaModel.addEventListener('click', async () => {
+      const input = $('#aiOllamaPullModel');
+      const model = input?.value?.trim() || selectedOllamaModel();
+      if (!model) return toast('Enter a model name to pull.', 'warn');
+      if (!confirm(`Pull Ollama model "${model}"? Large models can take a while.`)) return;
+      setButtonBusy(pullOllamaModel, true, 'Pulling...');
+      setInlineStatus('ollamaModelStatus', `Pulling ${model}...`, '');
+      try {
+        const data = await api('/api/vision/pull', { method:'POST', body:JSON.stringify({ model, base_url: ollamaBaseUrlFromSettings() }) });
+        populateOllamaModelSelect(data.models || [model], model);
+        if (input) input.value = '';
+        setInlineStatus('ollamaModelStatus', `Pulled ${model}.`, 'good');
+        toast(`Pulled ${model}`, 'success', 9000);
+      } catch (err) {
+        setInlineStatus('ollamaModelStatus', err.message, 'bad');
+        toast(err.message, 'error', 12000);
+      } finally {
+        setButtonBusy(pullOllamaModel, false);
+      }
+    });
+
     const saveAI = $('#saveAIButton');
     if (saveAI) saveAI.addEventListener('click', async () => {
       cfg.portal_ai = cfg.portal_ai || {};
@@ -386,6 +527,19 @@
       cfg.portal_ai.background_min_log_level = $('#aiBackgroundMinLogLevel')?.value || 'watch';
       cfg.portal_ai.telemetry_rules_enabled = !!$('#aiTelemetryRules')?.checked;
       cfg.portal_ai.camera_rules_enabled = !!$('#aiCameraRules')?.checked;
+      cfg.portal_ai.vision_ai_enabled = !!$('#aiVisionEnabled')?.checked;
+      cfg.portal_ai.ollama_base_url = $('#aiOllamaBaseUrl')?.value?.trim() || 'http://localhost:11434';
+      cfg.portal_ai.ollama_vision_model = $('#aiOllamaVisionModel')?.value?.trim() || 'llava';
+      cfg.portal_ai.vision_check_interval_seconds = Number($('#aiVisionCheckInterval')?.value || 120);
+      cfg.portal_ai.vision_require_active_print = !!$('#aiVisionRequireActivePrint')?.checked;
+      cfg.portal_ai.vision_heuristics_enabled = !!$('#aiVisionHeuristicsEnabled')?.checked;
+      cfg.portal_ai.vision_dark_mean_threshold = Number($('#aiVisionDarkMeanThreshold')?.value || 58);
+      cfg.portal_ai.vision_dark_relative_drop_threshold = Number($('#aiVisionDarkDropThreshold')?.value || 18);
+      cfg.portal_ai.vision_stringing_edge_density_threshold = Number($('#aiVisionStringingEdgeThreshold')?.value || 0.125);
+      cfg.portal_ai.vision_confidence_threshold = Number($('#aiVisionConfidenceThreshold')?.value || 70);
+      cfg.portal_ai.vision_severity_threshold = Number($('#aiVisionSeverityThreshold')?.value || 60);
+      cfg.portal_ai.vision_required_bad_checks = Number($('#aiVisionRequiredBadChecks')?.value || 2);
+      cfg.portal_ai.vision_prompt = $('#aiVisionPrompt')?.value || cfg.portal_ai.vision_prompt || '';
       cfg.portal_ai.progress_stuck_minutes = Number($('#aiProgressStuckMinutes')?.value || 8);
       cfg.portal_ai.multi_color_mode = $('#aiMultiColorMode')?.value || 'auto';
       cfg.portal_ai.multi_color_progress_stuck_minutes = Number($('#aiMultiColorStuckMinutes')?.value || 30);
@@ -404,7 +558,18 @@
       $$('#actionSettings [data-action-id]').forEach(row => {
         const id = row.dataset.actionId;
         const a = cfg.actions[id];
-        if (a) { a.visible = $('.action-visible', row).checked; a.requires_confirm = $('.action-confirm', row).checked; a.order = Number($('.action-order', row).value || 99); }
+        if (a) {
+          const oldLabel = String(a.label || id);
+          const labelInput = $('.action-label', row)?.value?.trim() || oldLabel;
+          a.visible = $('.action-visible', row).checked;
+          a.requires_confirm = $('.action-confirm', row).checked;
+          a.order = Number($('.action-order', row).value || 99);
+          a.label = labelInput;
+          if (id === 'set_speed_preset') {
+            delete a.preset_mode;
+            delete a.preset_name;
+          }
+        }
       });
       setButtonBusy(saveActions, true, 'Saving...');
       try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Buttons saved', 'success'); }
@@ -434,14 +599,40 @@
     });
   }
 
+  function logParams() {
+    const params = new URLSearchParams();
+    params.set('limit', $('#logLimit')?.value || '180');
+    const source = $('#logSource')?.value || 'all';
+    const level = $('#logLevel')?.value || 'all';
+    const q = $('#logSearch')?.value?.trim() || '';
+    if (source !== 'all') params.set('source', source);
+    if (level !== 'all') params.set('level', level);
+    if (q) params.set('q', q);
+    return params.toString();
+  }
+
+  function renderLogLine(l) {
+    const extra = l.extra && Object.keys(l.extra).length ? `<span class="log-extra">${esc(JSON.stringify(l.extra).slice(0, 500))}</span>` : '';
+    const sourceClass = String(l.source || 'app').toUpperCase().replace(/[^A-Z0-9_-]/g, '_');
+    return `<div class="log-line"><span>${esc(l.ts || l.iso || '')}</span> <strong class="${esc(l.level || 'INFO')}">[${esc(l.level || 'INFO')}]</strong> <strong class="${sourceClass}">${esc(l.source || 'app')}</strong> — ${esc(l.message || '')}${extra}</div>`;
+  }
+
   async function refreshLogs() {
     const out = $('#logOutput');
     if (!out) return;
     try {
-      const data = await api('/api/logs');
-      out.innerHTML = (data.logs || []).map(l => `<div class="log-line"><span>${l.ts}</span> <strong class="${l.level}">[${l.level}]</strong> <span>${l.source}</span> — ${l.message}</div>`).join('') || '<div class="log-line">No logs yet.</div>';
+      const data = await api(`/api/logs?${logParams()}`);
+      const src = $('#logSource');
+      if (src && !src.dataset.loadedSources) {
+        const current = src.value || 'all';
+        const sources = ['all', ...(data.sources || [])];
+        src.innerHTML = sources.map(s => `<option value="${esc(s)}">${esc(s === 'all' ? 'all sources' : s)}</option>`).join('');
+        src.value = sources.includes(current) ? current : 'all';
+        src.dataset.loadedSources = '1';
+      }
+      out.innerHTML = (data.logs || []).map(renderLogLine).join('') || '<div class="log-line">No logs match the current filter.</div>';
     } catch (err) {
-      out.innerHTML = `<div class="log-line"><strong class="ERROR">ERROR</strong> ${err.message}</div>`;
+      out.innerHTML = `<div class="log-line"><strong class="ERROR">ERROR</strong> ${esc(err.message)}</div>`;
     }
   }
 
@@ -450,6 +641,11 @@
     setInterval(refreshLogs, 3000);
     const btn = $('#refreshLogs');
     if (btn) btn.addEventListener('click', refreshLogs);
+    ['logSource', 'logLevel', 'logLimit'].forEach(id => $('#' + id)?.addEventListener('change', refreshLogs));
+    $('#logSearch')?.addEventListener('input', () => {
+      clearTimeout(window.__cc2LogSearchTimer);
+      window.__cc2LogSearchTimer = setTimeout(refreshLogs, 250);
+    });
   }
 
 

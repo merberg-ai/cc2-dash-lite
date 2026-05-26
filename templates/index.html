@@ -27,6 +27,7 @@
         <div>
           <strong>Status</strong>
           <span id="statusText" class="warn-text">Loading...</span>
+          <small class="telemetry-subline">Speed: <span id="currentSpeedBrief">-</span></small>
         </div>
         <div class="portal-ai-brief">
           <strong>Portal AI 🤖</strong>
@@ -42,6 +43,9 @@
         </div>
         <div class="ai-risk-meter" aria-label="Portal AI risk score"><div id="aiRiskBar" class="ai-risk-bar" style="width:0%"></div></div>
         <ul id="aiReasons" class="ai-reasons"><li>No warning rules are currently triggered.</li></ul>
+        {% if cfg.portal_ai.vision_ai_enabled|default(false) %}
+        <div id="aiVisionBox" class="ai-vision-box pending"><div><strong>Vision: pending</strong><span>Waiting for the first camera analysis.</span></div></div>
+        {% endif %}
         <div class="ai-feedback" id="aiFeedbackButtons">
           <button class="button secondary tiny ai-feedback-button" type="button" data-ai-feedback="looks_good">Looks Good</button>
           <button class="button secondary tiny ai-feedback-button" type="button" data-ai-feedback="looks_bad">Looks Bad</button>
@@ -51,10 +55,11 @@
 
       <hr />
 
-      <div class="status-grid three">
+      <div class="status-grid four">
         <div><strong>Print Time</strong><span id="printTime">-</span></div>
         <div><strong>Time Left</strong><span id="timeLeft">-</span></div>
         <div><strong>Completion</strong><span id="completion">-</span></div>
+        <div><strong>Speed</strong><span id="currentSpeed">-</span></div>
       </div>
 
       <hr />
@@ -80,9 +85,23 @@
       <div class="button-stack">
       {% for action_id, action in actions %}
         {% if action.visible %}
-        <button class="button {{ action.style|default('primary') }} action-button" data-action="{{ action_id }}" data-confirm="{{ action.confirm_text }}" data-requires-confirm="{{ 'true' if action.requires_confirm else 'false' }}" data-spinner-text="{{ action.spinner_text }}">
-          <span class="button-label">{{ action.label }}</span>
-        </button>
+          {% if action_id == 'set_speed_preset' %}
+          <div class="quick-action-row speed-action-row">
+            <select class="input speed-preset-select" aria-label="Speed preset for {{ action.label }}">
+              <option value="0">Silent</option>
+              <option value="1" selected>Balanced</option>
+              <option value="2">Sport</option>
+              <option value="3">Ludicrous</option>
+            </select>
+            <button class="button {{ action.style|default('primary') }} action-button" data-action="{{ action_id }}" data-confirm="{{ action.confirm_text }}" data-requires-confirm="{{ 'true' if action.requires_confirm else 'false' }}" data-spinner-text="{{ action.spinner_text }}">
+              <span class="button-label">{{ action.label }}</span>
+            </button>
+          </div>
+          {% else %}
+          <button class="button {{ action.style|default('primary') }} action-button" data-action="{{ action_id }}" data-confirm="{{ action.confirm_text }}" data-requires-confirm="{{ 'true' if action.requires_confirm else 'false' }}" data-spinner-text="{{ action.spinner_text }}">
+            <span class="button-label">{{ action.label }}</span>
+          </button>
+          {% endif %}
         {% endif %}
       {% endfor %}
       </div>

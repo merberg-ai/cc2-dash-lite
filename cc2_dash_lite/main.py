@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
+import shutil
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
 import httpx
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -17,6 +20,7 @@ from pydantic import BaseModel, Field
 from . import __version__
 from .config import (
     APP_ROOT,
+    DATA_DIR,
     default_printer,
     load_config,
     needs_setup,
@@ -27,7 +31,7 @@ from .config import (
     sorted_actions,
     sorted_cards,
 )
-from .logger import get_logs, log
+from .logger import get_logs, log, log_sources
 from .printer_client import PrinterClient
 from .scanner import default_subnet_guess, scan_network
 from .themes import FONT_STACKS, THEMES, get_theme, theme_css_vars
@@ -47,6 +51,7 @@ from .cc2.commands import (
     START_PRINT,
     HISTORY_DELETE,
     SET_LIGHT,
+    SET_PRINT_SPEED,
     START_VIDEO_STREAM,
     STOP_PRINT,
     delete_file_params,
@@ -59,6 +64,7 @@ from .cc2.commands import (
     timelapse_export_params,
     light_params,
     method_allowed,
+    print_speed_params,
     webcam_params,
 )
 # Import CommandError from the client module; the weird import above is avoided by this explicit import.
@@ -67,6 +73,8 @@ from .cc2.discovery import discover
 from .cc2.runtime import LitePrinterRuntime
 from .cc2.state import seconds_to_hms
 from .ai import portal_ai
+from .build_info import get_build_info
+from .vision import vision_monitor
 
 app = FastAPI(title="cc2-dash-lite", version=__version__)
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
@@ -84,6 +92,43 @@ _AI_MONITOR_STATE: dict[str, Any] = {
     "last_error": None,
 }
 _AI_MONITOR_LAST_LOGGED: dict[str, dict[str, Any]] = {}
+
+SPEED_PRESETS = {
+    0: "Silent",
+    1: "Balanced",
+    2: "Sport",
+    3: "Ludicrous",
+}
+
+
+def _speed_label(mode: Any, raw_speed: Any = None, speed_percent: Any = None) -> str:
+    try:
+        value = int(float(mode))
+        if value in SPEED_PRESETS:
+            return SPEED_PRESETS[value]
+    except Exception:
+        pass
+    if isinstance(mode, str) and mode.strip():
+        lowered = mode.strip().lower()
+        aliases = {"silent": "Silent", "slient": "Silent", "balanced": "Balanced", "sport": "Sport", "ludicrous": "Ludicrous", "frenzy": "Ludicrous"}
+        if lowered in aliases:
+            return aliases[lowered]
+    if speed_percent not in (None, ""):
+        try:
+            return f"{float(speed_percent):.0f}%"
+        except Exception:
+            return str(speed_percent)
+    if raw_speed not in (None, ""):
+        try:
+            value = float(raw_speed)
+            # Some Elegoo payloads expose print speed override as 50/100/125/etc.
+            # Others expose movement feedrate. Avoid pretending a percent is mm/s.
+            if 0 <= value <= 300:
+                return f"{value:.0f}%"
+            return f"{value:.0f} mm/s"
+        except Exception:
+            return str(raw_speed)
+    return "-"
 
 
 class ScanRequest(BaseModel):
@@ -119,6 +164,7 @@ class PrinterSettingsRequest(BaseModel):
 
 class ActionRequest(BaseModel):
     printer_id: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
 
 
 class CommandRequest(BaseModel):
@@ -161,6 +207,12 @@ class SaveConfigRequest(BaseModel):
 class AIFeedbackRequest(BaseModel):
     label: str
     note: str = ""
+    context: dict[str, Any] = Field(default_factory=dict)
+
+
+class OllamaPullRequest(BaseModel):
+    model: str
+    base_url: Optional[str] = None
 
 
 def _client_ip(request: Request) -> str:
@@ -253,7 +305,14 @@ async def _ai_monitor_loop() -> None:
                     if not runtime.get_client(printer_id):
                         runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
                     snap = runtime.snapshot(printer_id)
-                    status = _status_from_snapshot(printer_id, printer, snap, ai_source="background", force_ai_evaluate=True)
+                    status = await asyncio.to_thread(
+                        _status_from_snapshot,
+                        printer_id,
+                        printer,
+                        snap,
+                        "background",
+                        True,
+                    )
                     result = status.get("portal_ai") or {}
                     if result:
                         if _should_log_ai_change(printer_id, result, ai_cfg):
@@ -332,6 +391,7 @@ def view_context(request: Request) -> dict[str, Any]:
     return {
         "request": request,
         "version": __version__,
+        "build": get_build_info(),
         "cfg": cfg,
         "needs_setup": needs_setup(cfg),
         "cards": sorted_cards(cfg),
@@ -514,8 +574,14 @@ async def mqtt_websocket_bridge(websocket: WebSocket, printer_id: str) -> None:
 @app.get("/health")
 async def health():
     cfg = load_config()
-    return {"ok": True, "version": __version__, "setup_required": needs_setup(cfg), "printers": len(cfg.get("printers") or {})}
+    return {"ok": True, "version": __version__, "build": get_build_info(), "setup_required": needs_setup(cfg), "printers": len(cfg.get("printers") or {})}
 
+
+
+
+@app.get("/api/version")
+async def api_version():
+    return {"ok": True, "build": get_build_info()}
 
 @app.get("/api/health")
 async def api_health():
@@ -696,7 +762,48 @@ async def api_delete_printer(printer_id: str):
     return {"ok": True}
 
 
-def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[dict[str, Any]], cfg: dict[str, Any], ai_source: str = "request", force_ai_evaluate: bool = False) -> dict[str, Any]:
+def _maybe_attach_vision(printer_id: str, printer: dict[str, Any] | None, status: dict[str, Any], cfg: dict[str, Any], ai_source: str = "request", force: bool = False) -> dict[str, Any]:
+    ai_cfg = cfg.get("portal_ai", {}) or {}
+    if not ai_cfg.get("vision_ai_enabled", False):
+        cached = vision_monitor.cached_result(printer_id)
+        if cached:
+            status["vision_ai"] = cached
+        return status
+
+    # Normal browser refreshes should display the background watchdog cache. The
+    # backend watchdog and explicit Check Now calls are allowed to run the camera +
+    # Ollama path. That keeps the UI snappy and stops every refresh from poking
+    # the model like it owes us money.
+    should_run = force or ai_source == "background"
+    try:
+        if should_run and printer:
+            status["vision_ai"] = vision_monitor.check(printer_id, printer_dict_to_config(printer_id, printer), cfg, status=status, force=force)
+        else:
+            cached = vision_monitor.cached_result(printer_id)
+            if cached:
+                status["vision_ai"] = cached
+            else:
+                status["vision_ai"] = {
+                    "enabled": True,
+                    "visual_state": "pending",
+                    "summary": "Waiting for the background watchdog to run the first vision check.",
+                    "last_check_epoch": None,
+                    "last_check": None,
+                }
+    except Exception as exc:
+        status["vision_ai"] = {
+            "enabled": True,
+            "ok": False,
+            "visual_state": "camera_bad",
+            "summary": f"Vision monitor error: {exc}",
+            "last_error": str(exc),
+            "last_check_epoch": time.time(),
+            "last_check": time.strftime("%H:%M:%S"),
+        }
+    return status
+
+
+def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[dict[str, Any]], cfg: dict[str, Any], ai_source: str = "request", force_ai_evaluate: bool = False, printer: dict[str, Any] | None = None) -> dict[str, Any]:
     ai_cfg = cfg.get("portal_ai", {}) or {}
     use_cached = (
         ai_source == "request"
@@ -710,8 +817,13 @@ def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[di
         if cached and (time.time() - float(cached.get("last_check_epoch") or 0)) <= max_age:
             cached["served_from_cache"] = True
             cached["background_monitor_enabled"] = True
+            vision_cached = vision_monitor.cached_result(printer_id)
+            if vision_cached:
+                status["vision_ai"] = vision_cached
+                cached.setdefault("vision", vision_cached)
             status["portal_ai"] = cached
             return status
+    status = _maybe_attach_vision(printer_id, printer, status, cfg, ai_source=ai_source, force=force_ai_evaluate)
     status["portal_ai"] = portal_ai.evaluate(printer_id, status, snap, cfg, source=ai_source)
     return status
 
@@ -721,11 +833,17 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
     if not snap:
         cfg = load_config()
         status = PrinterClient(printer_id, printer, cfg)._empty_status("CC2 client is not running", reachable=False)
-        return _attach_ai_status(printer_id, status, None, cfg, ai_source=ai_source, force_ai_evaluate=force_ai_evaluate)
+        return _attach_ai_status(printer_id, status, None, cfg, ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
     n = snap.get("normalized") or {}
     temps = n.get("temps") or {}
     nozzle = temps.get("nozzle") or {}
     bed = temps.get("bed") or {}
+    position = n.get("position") or {}
+    speed_mode = position.get("speed_mode")
+    speed_raw = position.get("speed")
+    speed_mode_name = position.get("speed_mode_name")
+    speed_percent = position.get("speed_percent")
+    speed_label = _speed_label(speed_mode, speed_raw, speed_percent)
     progress = n.get("progress") or 0
     try:
         progress = float(progress)
@@ -751,6 +869,11 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "print_time": seconds_to_hms((n.get("time") or {}).get("elapsed_sec")) or "-",
         "time_left": (n.get("time") or {}).get("remaining_human") or seconds_to_hms((n.get("time") or {}).get("remaining_sec")) or "-",
         "completion": f"{round(progress, 1)}%",
+        "speed_mode": speed_mode,
+        "speed_mode_name": speed_mode_name,
+        "speed_raw": speed_raw,
+        "speed_percent": speed_percent,
+        "speed_setting": speed_label,
         "filament_used": "-",
         "hotend_current": nozzle.get("actual"),
         "hotend_target": nozzle.get("target"),
@@ -765,7 +888,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }
-    return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate)
+    return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
 
 
 @app.get("/api/status")
@@ -809,6 +932,10 @@ async def api_ai_monitor_status():
             "check_interval_seconds": ai_cfg.get("check_interval_seconds", 30),
             "background_log_changes": bool(ai_cfg.get("background_log_changes", True)),
             "background_min_log_level": ai_cfg.get("background_min_log_level", "watch"),
+            "vision_ai_enabled": bool(ai_cfg.get("vision_ai_enabled", False)),
+            "ollama_base_url": ai_cfg.get("ollama_base_url"),
+            "ollama_vision_model": ai_cfg.get("ollama_vision_model"),
+            "vision_check_interval_seconds": ai_cfg.get("vision_check_interval_seconds"),
         },
         "cached": cached,
     }
@@ -833,16 +960,145 @@ async def api_ai_check_now(printer_id: str):
     return await api_ai_status(printer_id)
 
 
+def _trim_raw_status(status: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the useful status fields without embedding the full raw MQTT snapshot."""
+    if not isinstance(status, dict):
+        return {}
+    omit = {"raw"}
+    return {k: v for k, v in status.items() if k not in omit}
+
+
+def _copy_feedback_frame(printer_id: str, label: str) -> dict[str, Any] | None:
+    """Copy the latest vision frame into a stable feedback dataset folder."""
+    try:
+        src = vision_monitor.latest_frame_path(printer_id)
+        if not src.exists():
+            return None
+        safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in str(label or "feedback")).strip("-") or "feedback"
+        root = DATA_DIR / "ai_feedback_frames" / printer_id
+        root.mkdir(parents=True, exist_ok=True)
+        stem = f"{time.strftime('%Y%m%d-%H%M%S')}_{safe_label}_{uuid.uuid4().hex[:8]}"
+        dest = root / f"{stem}.jpg"
+        shutil.copy2(src, dest)
+        return {
+            "captured": True,
+            "source_path": str(src),
+            "path": str(dest),
+            "relative_path": str(dest.relative_to(DATA_DIR)) if DATA_DIR in dest.parents else str(dest),
+            "bytes": dest.stat().st_size,
+        }
+    except Exception as exc:
+        return {"captured": False, "error": str(exc)}
+
+
+def _feedback_kind(label: str) -> str:
+    label = str(label or "").strip().lower()
+    if label in {"looks_good", "good", "ok"}:
+        return "positive"
+    if label in {"looks_bad", "bad", "failure", "problem"}:
+        return "failure"
+    if label in {"false_alarm", "false-positive", "false_positive"}:
+        return "false_alarm"
+    return "unknown"
+
+
+
+
+def _read_feedback_rows(limit: int = 200) -> list[dict[str, Any]]:
+    path = DATA_DIR / "ai_feedback.jsonl"
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            lines = fh.readlines()[-max(1, min(limit, 2000)):]
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+                if isinstance(item, dict):
+                    rows.append(item)
+            except Exception:
+                continue
+    except Exception:
+        return []
+    return rows
+
+
+@app.get("/api/ai/feedback/recent")
+async def api_ai_feedback_recent(limit: int = Query(50, ge=1, le=500)):
+    rows = _read_feedback_rows(limit)
+    if not rows:
+        rows = portal_ai.recent_feedback(limit)
+    return {"ok": True, "count": len(rows), "feedback": rows[-limit:]}
+
+
+@app.get("/api/ai/feedback/stats")
+async def api_ai_feedback_stats(limit: int = Query(500, ge=1, le=2000)):
+    rows = _read_feedback_rows(limit)
+    counts: dict[str, int] = {}
+    kinds: dict[str, int] = {}
+    frame_count = 0
+    for row in rows:
+        label = str(row.get("label") or "unknown")
+        counts[label] = counts.get(label, 0) + 1
+        snap = row.get("snapshot") if isinstance(row.get("snapshot"), dict) else {}
+        kind = str(snap.get("kind") or _feedback_kind(label))
+        kinds[kind] = kinds.get(kind, 0) + 1
+        frame = snap.get("frame") if isinstance(snap.get("frame"), dict) else {}
+        if frame.get("captured"):
+            frame_count += 1
+    return {
+        "ok": True,
+        "total": len(rows),
+        "labels": counts,
+        "kinds": kinds,
+        "frames": frame_count,
+        "used_for_live_decisions": False,
+        "note": "Feedback currently builds a labeled review dataset; it does not auto-train or auto-tune live scoring yet.",
+    }
+
 @app.post("/api/printers/{printer_id}/ai/feedback")
 async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
     cfg = load_config()
     printer = cfg.get("printers", {}).get(printer_id)
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not configured")
+    if not runtime.get_client(printer_id):
+        runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
     snap = runtime.snapshot(printer_id)
-    row = portal_ai.feedback(printer_id, body.label, body.note, snap or {})
-    log("info", f"Portal AI feedback: {body.label} {body.note}", "portal_ai", printer=printer_id)
-    return {"ok": True, "feedback": row}
+    status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False)
+    portal_cached = portal_ai.cached_result(printer_id) or status.get("portal_ai")
+    vision_cached = vision_monitor.cached_result(printer_id) or status.get("vision_ai") or (portal_cached or {}).get("vision")
+    frame_info = _copy_feedback_frame(printer_id, body.label)
+    training_snapshot = {
+        "schema": "cc2-ai-feedback-v2",
+        "label": str(body.label or "unknown"),
+        "kind": _feedback_kind(body.label),
+        "note": str(body.note or ""),
+        "printer_id": printer_id,
+        "created_at_epoch": time.time(),
+        "status": _trim_raw_status(status),
+        "portal_ai": portal_cached or {},
+        "vision": vision_cached or {},
+        "frame": frame_info,
+        "client_context": body.context or {},
+        "raw_snapshot_summary": {
+            "connected": bool((snap or {}).get("connected")),
+            "registered": bool((snap or {}).get("registered")),
+            "last_message_age_sec": (snap or {}).get("last_message_age_sec"),
+        },
+        "training_use": {
+            "dataset_ready": bool(frame_info and frame_info.get("captured")),
+            "used_for_live_decisions": False,
+            "note": "Saved as labeled review data. Live scoring does not auto-tune from feedback yet.",
+        },
+    }
+    row = portal_ai.feedback(printer_id, body.label, body.note, training_snapshot)
+    log("info", f"Portal AI feedback saved: {body.label}; frame={'yes' if frame_info and frame_info.get('captured') else 'no'}", "portal_ai", printer=printer_id, label=body.label, frame=(frame_info or {}).get("relative_path"))
+    return {"ok": True, "feedback": row, "frame": frame_info, "training": training_snapshot.get("training_use")}
 
 
 @app.get("/api/printers/{printer_id}/status")
@@ -918,12 +1174,31 @@ async def api_action(action_id: str, req: ActionRequest | None = None):
         except Exception:
             pass
         method, params, wait = START_VIDEO_STREAM, {}, False
+    elif action_id == "vision_check_now":
+        result = await api_vision_check_now(pid)
+        log("info", "Manual Ollama vision check requested", "portal_ai", printer=pid)
+        return {"ok": True, "message": "Camera analysis complete", "result": result}
+    elif action_id == "set_speed_preset":
+        req_params = req.params if req and isinstance(req.params, dict) else {}
+        mode = int(req_params.get("mode", 1))
+        mode = max(0, min(3, mode))
+        method, params, timeout = SET_PRINT_SPEED, print_speed_params(mode), 12.0
     else:
         raise HTTPException(404, f"Unknown action: {action_id}")
 
     result = await asyncio.to_thread(_send_command, pid, method, params, wait, timeout)
-    log("info", f"Action {action_id} sent", "command", printer=pid)
-    return {"ok": True, "message": f"{action_cfg.get('label', action_id)} sent", "result": result.get("result")}
+    if action_id == "set_speed_preset":
+        req_params = req.params if req and isinstance(req.params, dict) else {}
+        mode = int(req_params.get("mode", 1))
+        mode = max(0, min(3, mode))
+        message = f"Print speed preset set to {SPEED_PRESETS.get(mode, mode)}"
+    else:
+        message = f"{action_cfg.get('label', action_id)} sent"
+    if action_id == "set_speed_preset":
+        log("info", message, "command", printer=pid, mode=mode)
+    else:
+        log("info", f"Action {action_id} sent", "command", printer=pid)
+    return {"ok": True, "message": message, "result": result.get("result")}
 
 
 @app.get("/api/printers/{printer_id}/files")
@@ -1171,6 +1446,80 @@ async def api_camera_enable(printer_id: str):
     return await asyncio.to_thread(_send_command, printer_id, ENABLE_WEBCAM, webcam_params(True), False, 5.0)
 
 
+@app.get("/api/vision/models")
+async def api_vision_models(base_url: Optional[str] = Query(None)):
+    cfg = load_config()
+    ai_cfg = dict(cfg.get("portal_ai", {}) or {})
+    if base_url:
+        ai_cfg["ollama_base_url"] = base_url
+    try:
+        data = await asyncio.to_thread(vision_monitor.list_ollama_models, ai_cfg)
+        return data
+    except Exception as exc:
+        raise HTTPException(502, f"Could not query Ollama models: {exc}")
+
+
+@app.post("/api/vision/pull")
+async def api_vision_pull(body: OllamaPullRequest):
+    cfg = load_config()
+    ai_cfg = dict(cfg.get("portal_ai", {}) or {})
+    if body.base_url:
+        ai_cfg["ollama_base_url"] = body.base_url
+    model = (body.model or "").strip()
+    if not model:
+        raise HTTPException(400, "Model name is required")
+    try:
+        return await asyncio.to_thread(vision_monitor.pull_ollama_model, ai_cfg, model)
+    except Exception as exc:
+        raise HTTPException(502, f"Could not pull Ollama model: {exc}")
+
+
+@app.get("/api/printers/{printer_id}/vision/status")
+async def api_vision_status(printer_id: str):
+    cfg = load_config()
+    if printer_id not in (cfg.get("printers") or {}):
+        raise HTTPException(404, "Printer not configured")
+    return {"ok": True, "vision": vision_monitor.cached_result(printer_id)}
+
+
+@app.post("/api/printers/{printer_id}/vision/check-now")
+async def api_vision_check_now(printer_id: str):
+    cfg = load_config()
+    printer = (cfg.get("printers") or {}).get(printer_id)
+    if not printer:
+        raise HTTPException(404, "Printer not configured")
+    if not runtime.get_client(printer_id):
+        runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
+    snap = runtime.snapshot(printer_id)
+    # Build status without forcing a nested vision run, then run vision explicitly.
+    status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False)
+    result = await asyncio.to_thread(
+        vision_monitor.check,
+        printer_id,
+        printer_dict_to_config(printer_id, printer),
+        cfg,
+        status,
+        True,
+    )
+    portal_ai.reset(printer_id)
+    snap = runtime.snapshot(printer_id)
+    status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False)
+    status["vision_ai"] = result
+    status["portal_ai"] = portal_ai.evaluate(printer_id, status, snap, cfg, source="request")
+    return {"ok": True, "vision": result, "portal_ai": status.get("portal_ai"), "status": status}
+
+
+@app.get("/api/printers/{printer_id}/vision/latest.jpg")
+async def api_vision_latest_frame(printer_id: str):
+    cfg = load_config()
+    if printer_id not in (cfg.get("printers") or {}):
+        raise HTTPException(404, "Printer not configured")
+    path = vision_monitor.latest_frame_path(printer_id)
+    if not path.exists():
+        raise HTTPException(404, "No vision frame has been captured yet")
+    return FileResponse(str(path), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/printers/{printer_id}/camera/url")
 async def api_camera_url(printer_id: str):
     pcfg = _portal_target(printer_id)
@@ -1282,8 +1631,8 @@ async def portal_proxy(printer_id: str, path: str, request: Request):
 
 
 @app.get("/api/logs")
-async def api_logs(limit: int = 120):
-    return {"ok": True, "logs": get_logs(limit)}
+async def api_logs(limit: int = 120, source: Optional[str] = None, level: Optional[str] = None, q: Optional[str] = None):
+    return {"ok": True, "logs": get_logs(limit, source=source, level=level, q=q), "sources": log_sources()}
 
 
 @app.post("/api/setup/finish")

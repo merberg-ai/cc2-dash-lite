@@ -224,7 +224,7 @@ class PortalAIDetector:
 
         if ai_cfg.get("camera_rules_enabled", True):
             # This is deliberately a lightweight camera health hint. The browser still
-            # displays the stream; future versions can add frame sampling/OpenCV here.
+            # displays the stream; the vision monitor below handles actual frame analysis.
             camera_known = camera_info is not None or camera_attr is not None
             camera_bad = False
             if isinstance(camera_info, dict):
@@ -238,6 +238,54 @@ class PortalAIDetector:
                 reasons.append("Printer reports the camera may be unavailable.")
             elif camera_known:
                 positives.append("Camera status hint looks okay.")
+
+        vision_result = status.get("vision_ai") if isinstance(status.get("vision_ai"), dict) else None
+        if ai_cfg.get("vision_ai_enabled", False) and vision_result:
+            visual_state = str(vision_result.get("visual_state") or "unknown")
+            confidence = _as_float(vision_result.get("confidence"), 0.0)
+            severity = _as_float(vision_result.get("severity"), 0.0)
+            summary_text = str(vision_result.get("summary") or visual_state.replace("_", " "))
+            heuristics = vision_result.get("heuristics") if isinstance(vision_result.get("heuristics"), dict) else {}
+            heur_warnings = heuristics.get("warnings") if isinstance(heuristics.get("warnings"), list) else []
+            confirmed = bool(vision_result.get("bad_confirmed"))
+            bad_now = bool(vision_result.get("bad_now"))
+            consecutive = int(_as_float(vision_result.get("consecutive_bad"), 0.0))
+            required = int(_as_float(vision_result.get("required_bad_checks"), 2.0))
+
+            if vision_result.get("skipped"):
+                positives.append("Vision check is standing by until an active print is detected.")
+            elif not vision_result.get("ok", True):
+                bump = 18 if active_print else 8
+                if confirmed:
+                    bump += 10
+                risk += bump
+                reasons.append(f"Vision check could not verify the camera image: {summary_text}")
+            elif visual_state == "ok":
+                positives.append("Ollama vision check says the camera view looks OK.")
+            elif visual_state == "uncertain":
+                bump = 8 if active_print else 3
+                if bad_now and heuristics.get("possible_stringing"):
+                    bump += 14 if active_print else 6
+                    reasons.append(f"Local vision heuristics flagged possible stringing/spaghetti ({', '.join(map(str, heur_warnings))}): {summary_text}")
+                else:
+                    reasons.append(f"Ollama vision is uncertain: {summary_text}")
+                risk += bump
+            elif visual_state == "camera_bad":
+                risk += 20 if active_print else 10
+                reasons.append(f"Ollama vision reports a camera/view problem: {summary_text}")
+            elif visual_state in ("possible_failure", "failure_likely"):
+                base = 22 if visual_state == "possible_failure" else 38
+                confidence_factor = max(0.4, min(1.0, confidence / 100.0))
+                severity_factor = max(0.4, min(1.0, severity / 100.0))
+                bump = int(round(base * ((confidence_factor + severity_factor) / 2.0)))
+                if confirmed:
+                    bump += 18 if visual_state == "failure_likely" else 10
+                    reasons.append(f"Ollama vision {visual_state.replace('_', ' ')} after {consecutive}/{required} bad checks: {summary_text}")
+                elif bad_now:
+                    reasons.append(f"Ollama vision saw a possible issue ({consecutive}/{required} checks): {summary_text}")
+                else:
+                    reasons.append(f"Ollama vision noted a possible issue: {summary_text}")
+                risk += bump
 
         risk = max(0, min(100, int(round(risk))))
         if risk >= 75:
@@ -285,6 +333,7 @@ class PortalAIDetector:
                 "camera": bool(ai_cfg.get("camera_rules_enabled", True)),
                 "vision": bool(ai_cfg.get("vision_ai_enabled", False)),
             },
+            "vision": vision_result,
         }
         prev["last_result"] = result
         return result

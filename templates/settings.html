@@ -63,7 +63,7 @@
 
   <article class="card">
     <h2>Portal AI 🤖</h2>
-    <p class="muted">Explainable failure detection using printer telemetry first: connection health, error states, stale status, progress stalls, temperatures, filament sensor hints, and camera availability hints. Vision/OpenCV hooks stay disabled for now.</p>
+    <p class="muted">Explainable failure detection using printer telemetry first, with optional server-side camera frame checks through your LAN Ollama vision model.</p>
     <div class="settings-list">
       <div class="setting-row">
         <div><strong>Enable Portal AI</strong><small>Turns the dashboard AI risk card on or off.</small></div>
@@ -97,8 +97,57 @@
         <div class="setting-controls"><label><input id="aiTelemetryRules" class="toggle" type="checkbox" {% if cfg.portal_ai.telemetry_rules_enabled %}checked{% endif %}> enabled</label></div>
       </div>
       <div class="setting-row">
-        <div><strong>Camera health hints</strong><small>Uses printer-reported camera availability where available. Actual frame analysis comes later.</small></div>
+        <div><strong>Camera health hints</strong><small>Uses printer-reported camera availability where available.</small></div>
         <div class="setting-controls"><label><input id="aiCameraRules" class="toggle" type="checkbox" {% if cfg.portal_ai.camera_rules_enabled %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Ollama vision monitoring</strong><small>Samples printer camera frames from the backend and asks your LAN Ollama vision model for a conservative second opinion.</small></div>
+        <div class="setting-controls"><label><input id="aiVisionEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.vision_ai_enabled|default(false) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Ollama host:port</strong><small>Example: http://192.168.1.24:11434</small></div>
+        <div class="setting-controls"><input id="aiOllamaBaseUrl" class="input wide-input" type="text" value="{{ cfg.portal_ai.ollama_base_url|default('http://192.168.1.24:11434') }}"></div>
+      </div>
+      <div class="setting-row tall">
+        <div><strong>Vision model</strong><small>Pick from models already installed on your LAN Ollama box. Use Pull to download a model by name if Ollama has access to it.</small></div>
+        <div class="setting-controls ollama-model-controls">
+          <select id="aiOllamaVisionModel" class="input model-select" data-current-model="{{ cfg.portal_ai.ollama_vision_model|default('llava') }}">
+            <option value="{{ cfg.portal_ai.ollama_vision_model|default('llava') }}">{{ cfg.portal_ai.ollama_vision_model|default('llava') }} (saved)</option>
+          </select>
+          <button id="refreshOllamaModelsButton" class="button secondary tiny" type="button">Load Models</button>
+          <button id="testOllamaButton" class="button secondary tiny" type="button">Test</button>
+          <input id="aiOllamaPullModel" class="input model-pull-input" type="text" placeholder="model to pull, e.g. llava:latest">
+          <button id="pullOllamaModelButton" class="button secondary tiny" type="button">Pull</button>
+          <small id="ollamaModelStatus" class="inline-status">Models have not been loaded yet.</small>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Vision check interval</strong><small>Seconds between background camera+Ollama checks. This is separate from the fast telemetry watchdog.</small></div>
+        <div class="setting-controls"><input id="aiVisionCheckInterval" class="input" type="number" min="10" max="3600" step="10" value="{{ cfg.portal_ai.vision_check_interval_seconds|default(120) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Only check during active prints</strong><small>Keeps Ollama quiet when the printer is idle.</small></div>
+        <div class="setting-controls"><label><input id="aiVisionRequireActivePrint" class="toggle" type="checkbox" {% if cfg.portal_ai.vision_require_active_print|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Local frame heuristics</strong><small>Cheap server-side checks catch dark frames and high fine-edge/stringing-ish changes before the model gets involved.</small></div>
+        <div class="setting-controls"><label><input id="aiVisionHeuristicsEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.vision_heuristics_enabled|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Heuristic thresholds</strong><small>Dark luma threshold and fine-edge density threshold. Lower dark = less sensitive; lower edge = more sensitive.</small></div>
+        <div class="setting-controls compact-inline"><input id="aiVisionDarkMeanThreshold" class="input" type="number" min="0" max="120" step="1" value="{{ cfg.portal_ai.vision_dark_mean_threshold|default(42) }}"><input id="aiVisionStringingEdgeThreshold" class="input" type="number" min="0.02" max="0.5" step="0.005" value="{{ cfg.portal_ai.vision_stringing_edge_density_threshold|default(0.125) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Vision thresholds</strong><small>Minimum confidence/severity before a model result counts as suspicious.</small></div>
+        <div class="setting-controls compact-inline"><input id="aiVisionConfidenceThreshold" class="input" type="number" min="0" max="100" step="5" value="{{ cfg.portal_ai.vision_confidence_threshold|default(70) }}"><input id="aiVisionSeverityThreshold" class="input" type="number" min="0" max="100" step="5" value="{{ cfg.portal_ai.vision_severity_threshold|default(60) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Bad vision checks required</strong><small>How many suspicious camera analyses in a row before Portal AI treats vision as confirmed.</small></div>
+        <div class="setting-controls"><input id="aiVisionRequiredBadChecks" class="input" type="number" min="1" max="10" step="1" value="{{ cfg.portal_ai.vision_required_bad_checks|default(2) }}"></div>
+      </div>
+      <div class="setting-row tall">
+        <div><strong>Vision prompt</strong><small>Editable system prompt sent with each camera image. Keep JSON-only instructions unless you enjoy parsing soup.</small></div>
+        <div class="setting-controls"><textarea id="aiVisionPrompt" class="input config-textarea small-textarea">{{ cfg.portal_ai.vision_prompt|default('') }}</textarea></div>
       </div>
       <div class="setting-row">
         <div><strong>Progress stuck threshold</strong><small>Minutes without progress change before Portal AI becomes suspicious.</small></div>
@@ -140,7 +189,7 @@
 
   <article class="card">
     <h2>Buttons / Quick Actions</h2>
-    <p class="muted">Hide buttons, reorder them, or require confirmation.</p>
+    <p class="muted">Hide buttons, rename them, reorder them, require confirmation, or tune action-specific options.</p>
     <div id="actionSettings" class="settings-list"></div>
     <button id="saveActionsButton" class="button primary full"><span class="button-label">Save Buttons</span></button>
   </article>

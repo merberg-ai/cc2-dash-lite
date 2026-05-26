@@ -24,10 +24,14 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - Configurable quick-action button visibility/order/confirmation
 - JSON-based theme system
 - Configurable font packs using local/system font stacks
-- Console/log page
+- Filterable persisted Logs page for system, command, Portal AI, and vision events
 - Portal AI v1 telemetry failure detection with explainable risk score
 - Portal AI background watchdog monitoring, even when the browser is closed
+- Optional Ollama vision monitoring using printer camera snapshots
+- Local camera-frame heuristics for dark/low-contrast frames and stringing-ish fine-edge warnings
+- Dashboard telemetry display for the current printer speed preset when reported by the printer
 - Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm tuning
+- Header build badge showing version + Git/GitHub commit metadata when available
 - LAN allowlist guard, defaulting to `192.168.1.0/24` plus localhost
 - Install/uninstall scripts for Raspberry Pi/Linux
 - Optional systemd service installation
@@ -35,7 +39,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.2.0.zip
+unzip cc2-dash-lite-1.2.6.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -120,7 +124,7 @@ That bridge shuttles browser WebSocket MQTT frames to the printer's TCP MQTT por
 
 ## Portal AI v1
 
-The dashboard now has a real **Portal AI 🤖** panel instead of a dummy label. This first pass is intentionally explainable and telemetry-first. It does not use computer vision yet, and it does not auto-pause/cancel prints.
+The dashboard now has a real **Portal AI 🤖** panel instead of a dummy label. This first pass is intentionally explainable and telemetry-first. It can optionally use Ollama vision models for camera-frame analysis, but it still does not auto-pause/cancel prints.
 
 Current checks include:
 
@@ -134,6 +138,8 @@ Progress stuck timer
 Hotend/bed target sanity while a print appears active
 Filament sensor says no filament while printing
 Printer-reported camera availability hints
+Optional Ollama camera-frame analysis
+Local frame checks for dark camera images and high fine-edge/stringing-ish changes
 ```
 
 The background watchdog starts with the FastAPI service and keeps evaluating configured printers on a timer, even if nobody has the dashboard open. The dashboard displays the latest cached watchdog result when available, so browser polling is no longer what keeps the AI alive.
@@ -142,12 +148,50 @@ The API returns the score under `portal_ai` in `/api/status` and exposes dedicat
 
 ```text
 GET  /api/ai/monitor
+GET  /api/vision/models
 GET  /api/printers/<printer_id>/ai/status
 POST /api/printers/<printer_id>/ai/check-now
 POST /api/printers/<printer_id>/ai/feedback
+GET  /api/printers/<printer_id>/vision/status
+GET  /api/vision/models
+POST /api/vision/pull
+POST /api/printers/<printer_id>/vision/check-now
+GET  /api/printers/<printer_id>/vision/latest.jpg
 ```
 
-Settings → Portal AI controls the rule toggles, thresholds, background monitor interval, and watchdog logging level. Auto-pause settings are stored for the future, but this build remains advisory-only. No robot panic button yet.
+Settings → Portal AI controls the rule toggles, thresholds, background monitor interval, watchdog logging level, Ollama host:port, vision model, local frame heuristics, vision interval, and prompt. Auto-pause settings are stored for the future, but this build remains advisory-only. No robot panic button yet.
+
+
+## Ollama vision monitoring
+
+Enable this in **Settings → Portal AI → Ollama vision monitoring**. The backend samples the printer camera, sends a single JPEG frame to your configured Ollama host, and merges the JSON result into the existing Portal AI risk score.
+
+Defaults:
+
+```text
+Ollama host:port: http://192.168.1.24:11434
+Vision model: llava
+Vision interval: 120 seconds
+Bad checks required: 2
+```
+
+Use **Load Models** to populate the themed model dropdown from `/api/tags`, **Test** to verify the selected model is installed, and **Pull** to request a model download through Ollama. The quick action **Analyze Camera Now** forces an immediate one-shot camera analysis. Local heuristics run before/alongside Ollama, so turning the printer light off should now produce a camera/view warning even if the model would otherwise shrug. High fine-edge density is logged as a possible stringing/spaghetti hint for visual review.
+
+Vision is advisory-only in this build. It raises/lower Portal AI risk and stores the latest frame under `data/vision/<printer_id>/latest.jpg`, but it does not pause or cancel prints.
+
+## Logs
+
+The Logs page now reads from the in-memory console and `data/logs/system.jsonl`. Use the source/level/search filters to isolate:
+
+```text
+system/app/setup/settings
+command
+portal_ai
+vision
+scanner
+```
+
+Portal AI watchdog changes and vision state changes are logged automatically. Vision logs include heuristic flags such as `dark_frame`, `low_contrast_frame`, `high_fine_edge_density`, and `fine_edge_density_jump` when they trigger.
 
 ## Commands and safety
 
@@ -160,6 +204,8 @@ Pause Print        -> method 1021
 Resume Print       -> method 1023
 Cancel Print       -> method 1022
 Camera Wake/Enable -> methods 1042 / 1054
+Set Speed Preset  -> method 1031 params {"mode": 0-3}; mode is chosen from the dashboard selector at click time
+Analyze Camera Now -> server-side Ollama vision check
 ```
 
 By default, non-dangerous commands are enabled for newly paired printers. Dangerous commands are still disabled by default, so `Cancel Print` may be blocked until you enable `allow_dangerous_commands` for that printer in the raw JSON settings. That is deliberate, because accidentally canceling a long print from a phone tap is how dashboards become haunted.
@@ -316,3 +362,46 @@ The top menu now has a configurable **File Manager menu option** toggle under **
 - Added Settings → Portal AI controls for background monitor enable/disable, check interval, log-on-change behavior, and minimum watchdog log level.
 - Added `/api/ai/monitor` for watchdog status/debug info.
 
+
+
+## v1.2.1 notes
+
+- Header now shows a tiny theme-font build badge near the app name, e.g. `v1.2.1 · commit abc1234`.
+- Added runtime build metadata detection from Git checkout or environment variables such as `CC2_DASH_GIT_COMMIT`, `GITHUB_SHA`, `CC2_DASH_GIT_BRANCH`, and `GITHUB_REF_NAME`.
+- Added `/api/version` and included build metadata in `/health` for quick diagnostics.
+- ZIP/archive installs without `.git` will show `commit unknown` unless a commit env var is supplied by the service/deployment.
+
+
+## v1.2.3 notes
+
+- Settings → Portal AI now has a themed Ollama model dropdown. Use **Load Models** to fetch installed models from the configured Ollama host.
+- Added **Pull** model support via Ollama `/api/pull` for grabbing a model by name from the settings screen.
+- Dashboard hides the vision status block completely when Ollama vision monitoring is disabled.
+- The Set Speed quick action now shows a dashboard selector for Silent / Balanced / Sport / Ludicrous and sends the selected mode at click time. The button settings keep show/hide, label, order, and confirmation only.
+
+
+## v1.2.5 notes
+
+- Vision prompts now include printer telemetry context before asking Ollama to classify the camera image. This prevents the model from calling an active print "idle" just because the still frame looks still.
+- Added a telemetry/model mismatch guard. If telemetry says the printer is printing but Ollama says idle/ready, the dashboard marks the vision result as uncertain and logs `telemetry_model_mismatch`.
+- Local frame heuristics are more sensitive to lights-off tests. They now detect absolute dark frames, low-contrast dim frames, and relative light drops from the learned baseline.
+- Vision card now shows luma/contrast/edge metrics to make tuning less voodoo.
+- Speed telemetry is shown in the Status block and the telemetry grid, with broader parsing for speed mode/percent fields.
+
+## v1.2.6 notes
+
+- Dashboard quick-action buttons for **Analyze Camera Now** and **Set Speed** now use the active theme color instead of the plain secondary/card style.
+- Portal AI feedback buttons now use theme-matched colors while still visually separating good/bad/false-alarm labels.
+- AI feedback now saves a richer labeled review record to `data/ai_feedback.jsonl`:
+  - feedback label and note
+  - current printer status snapshot without the huge raw MQTT payload
+  - current Portal AI result
+  - latest vision result
+  - client/UI context
+  - a stable copy of the latest vision frame when one exists
+- Feedback frame copies are stored under `data/ai_feedback_frames/<printer_id>/`.
+- Added feedback review endpoints:
+  - `GET /api/ai/feedback/recent`
+  - `GET /api/ai/feedback/stats`
+
+Feedback is now a proper dataset builder, but it still does **not** auto-train or auto-tune live scoring. That is intentional for safety: the dashboard should collect labeled examples first, then later use that dataset for calibration or fine-tuning after review.

@@ -19,10 +19,11 @@
   <div id="toastHost" class="toast-host" aria-live="polite"></div>
   <div class="app-shell">
     <header class="topbar fade-in">
-      <a class="brand" href="/">
+      <a class="brand" href="/" title="cc2-dash-lite v{{ build.version }} · commit {{ build.git_commit_short }}{% if build.git_branch and build.git_branch != 'unknown' %} · {{ build.git_branch }}{% endif %}{% if build.git_dirty %} · dirty{% endif %}">
         <span class="brand-icon">⬢</span>
-        <span>
+        <span class="brand-text">
           <strong>{{ cfg.app.name|default('cc2-dash-lite') }}</strong>
+          <span class="brand-build">v{{ build.version }} · commit {{ build.git_commit_short }}{% if build.git_dirty %}*{% endif %}</span>
           <small>{{ printer.name if printer else 'setup required' }}</small>
         </span>
       </a>

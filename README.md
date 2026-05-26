@@ -25,6 +25,8 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - JSON-based theme system
 - Configurable font packs using local/system font stacks
 - Console/log page
+- Portal AI v1 telemetry failure detection with explainable risk score
+- Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm tuning
 - LAN allowlist guard, defaulting to `192.168.1.0/24` plus localhost
 - Install/uninstall scripts for Raspberry Pi/Linux
 - Optional systemd service installation
@@ -32,7 +34,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.0.0.zip
+unzip cc2-dash-lite-1.1.0.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -114,6 +116,34 @@ The local bridge is:
 ```
 
 That bridge shuttles browser WebSocket MQTT frames to the printer's TCP MQTT port at `1883`.
+
+## Portal AI v1
+
+The dashboard now has a real **Portal AI 🤖** panel instead of a dummy label. This first pass is intentionally explainable and telemetry-first. It does not use computer vision yet, and it does not auto-pause/cancel prints.
+
+Current checks include:
+
+```text
+Printer reachable / connected / registered
+Stale MQTT status age
+Printer error/fail/emergency/stopped states
+Paused state warning
+Printer exception status
+Progress stuck timer
+Hotend/bed target sanity while a print appears active
+Filament sensor says no filament while printing
+Printer-reported camera availability hints
+```
+
+The API returns the score under `portal_ai` in `/api/status` and exposes dedicated endpoints:
+
+```text
+GET  /api/printers/<printer_id>/ai/status
+POST /api/printers/<printer_id>/ai/check-now
+POST /api/printers/<printer_id>/ai/feedback
+```
+
+Settings → Portal AI controls the rule toggles and thresholds. Auto-pause settings are stored for the future, but this build remains advisory-only. No robot panic button yet.
 
 ## Commands and safety
 

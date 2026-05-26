@@ -58,6 +58,32 @@
     if (el) el.textContent = value ?? '-';
   }
 
+  function renderPortalAI(ai) {
+    ai = ai || {};
+    const summary = ai.summary || 'Standing By';
+    const level = ai.level || 'low';
+    const risk = Math.max(0, Math.min(100, Number(ai.risk || 0)));
+    setText('assistantText', summary);
+    const reason = (ai.reasons || [])[0] || 'No warning rules are currently triggered.';
+    setText('assistantReason', reason);
+    setText('aiLevel', `${level.toUpperCase()} · ${risk}%`);
+    setText('aiLastCheck', ai.last_check ? `checked ${ai.last_check}` : 'checking...');
+    const bar = $('#aiRiskBar');
+    if (bar) {
+      bar.style.width = `${risk}%`;
+      bar.className = `ai-risk-bar ${level}`;
+    }
+    const pill = $('#aiLevel');
+    if (pill) pill.className = `ai-pill ${level}`;
+    const panel = $('#aiPanel');
+    if (panel) panel.className = `ai-panel ${level}`;
+    const reasons = $('#aiReasons');
+    if (reasons) {
+      const rows = (ai.reasons && ai.reasons.length ? ai.reasons : ['No warning rules are currently triggered.']).slice(0, 5);
+      reasons.innerHTML = rows.map(r => `<li>${esc(r)}</li>`).join('');
+    }
+  }
+
   window.cc2CameraFailed = function () {
     const ph = $('#cameraPlaceholder');
     const cam = $('#cameraStream');
@@ -79,7 +105,7 @@
       if (progressText) progressText.textContent = `${progress.toFixed(1)}%`;
 
       setText('statusText', st.status_text || st.state || 'Unknown');
-      setText('assistantText', st.reachable ? 'Standing By' : 'Connection Lost');
+      renderPortalAI(st.portal_ai || { summary: st.reachable ? 'Standing By' : 'Connection Lost', level: st.reachable ? 'low' : 'watch', risk: st.reachable ? 0 : 35, reasons: [st.message || 'Waiting for printer telemetry.'] });
       setText('printTime', st.print_time || '-');
       setText('timeLeft', st.time_left || '-');
       setText('completion', st.completion || `${progress.toFixed(1)}%`);
@@ -106,7 +132,7 @@
       if (ph && cam && !cam.classList.contains('hidden')) ph.classList.add('hidden');
     } catch (err) {
       setText('apiState', 'Error');
-      setText('assistantText', 'Connection Trouble');
+      renderPortalAI({ summary: 'Connection Trouble', level: 'high', risk: 75, reasons: [err.message || 'Dashboard could not load printer status.'] });
       const statusEl = $('#statusText');
       if (statusEl) {
         statusEl.textContent = 'Printer Error';
@@ -120,6 +146,25 @@
     refreshDashboard();
     const interval = Number(cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
     setInterval(refreshDashboard, Math.max(1500, interval));
+    const feedbackBox = $('#aiFeedbackButtons');
+    if (feedbackBox && cfg?.portal_ai?.feedback_enabled === false) feedbackBox.classList.add('hidden');
+    $$('.ai-feedback-button').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const label = btn.dataset.aiFeedback || 'unknown';
+        const printerId = document.body.dataset.printerId;
+        if (!printerId) return toast('No printer configured for AI feedback.', 'warn');
+        setButtonBusy(btn, true, 'Saving...');
+        try {
+          await api(`/api/printers/${encodeURIComponent(printerId)}/ai/feedback`, { method:'POST', body: JSON.stringify({ label }) });
+          toast('Portal AI feedback saved', 'success');
+        } catch (err) {
+          toast(err.message, 'error', 7000);
+        } finally {
+          setButtonBusy(btn, false);
+        }
+      });
+    });
+
     $$('.action-button').forEach(btn => {
       btn.addEventListener('click', async () => {
         const action = btn.dataset.action;
@@ -328,6 +373,23 @@
       try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Menu settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
       catch (err) { toast(err.message, 'error'); }
       finally { setButtonBusy(saveMenu, false); }
+    });
+
+    const saveAI = $('#saveAIButton');
+    if (saveAI) saveAI.addEventListener('click', async () => {
+      cfg.portal_ai = cfg.portal_ai || {};
+      cfg.portal_ai.enabled = !!$('#portalAIEnabled')?.checked;
+      cfg.portal_ai.telemetry_rules_enabled = !!$('#aiTelemetryRules')?.checked;
+      cfg.portal_ai.camera_rules_enabled = !!$('#aiCameraRules')?.checked;
+      cfg.portal_ai.progress_stuck_minutes = Number($('#aiProgressStuckMinutes')?.value || 8);
+      cfg.portal_ai.stale_status_seconds = Number($('#aiStaleStatusSeconds')?.value || 75);
+      cfg.portal_ai.feedback_enabled = !!$('#aiFeedbackEnabled')?.checked;
+      cfg.portal_ai.auto_pause_enabled = !!$('#aiAutoPauseEnabled')?.checked;
+      cfg.portal_ai.auto_pause_threshold = Number($('#aiAutoPauseThreshold')?.value || 90);
+      setButtonBusy(saveAI, true, 'Saving...');
+      try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Portal AI settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
+      catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(saveAI, false); }
     });
 
     const saveActions = $('#saveActionsButton');

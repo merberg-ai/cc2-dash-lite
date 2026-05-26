@@ -65,6 +65,7 @@ from .cc2.client import CommandError
 from .cc2.discovery import discover
 from .cc2.runtime import LitePrinterRuntime
 from .cc2.state import seconds_to_hms
+from .ai import portal_ai
 
 app = FastAPI(title="cc2-dash-lite", version=__version__)
 app.mount("/static", StaticFiles(directory=str(APP_ROOT / "static")), name="static")
@@ -145,6 +146,11 @@ class HistoryDeleteRequest(BaseModel):
 
 class SaveConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIFeedbackRequest(BaseModel):
+    label: str
+    note: str = ""
 
 
 def _client_ip(request: Request) -> str:
@@ -594,7 +600,9 @@ async def api_delete_printer(printer_id: str):
 def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Optional[dict[str, Any]]) -> dict[str, Any]:
     pcfg = printer_dict_to_config(printer_id, printer)
     if not snap:
-        return PrinterClient(printer_id, printer, load_config())._empty_status("CC2 client is not running", reachable=False)
+        status = PrinterClient(printer_id, printer, load_config())._empty_status("CC2 client is not running", reachable=False)
+        status["portal_ai"] = portal_ai.evaluate(printer_id, status, None, load_config())
+        return status
     n = snap.get("normalized") or {}
     temps = n.get("temps") or {}
     nozzle = temps.get("nozzle") or {}
@@ -609,7 +617,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         progress = 0.0
     state = n.get("sub_state") or n.get("state") or ("registered" if snap.get("registered") else "offline")
     reachable = bool(snap.get("connected") or snap.get("registered"))
-    return {
+    status = {
         "printer_id": printer_id,
         "name": pcfg.name,
         "host": pcfg.host,
@@ -638,6 +646,8 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }
+    status["portal_ai"] = portal_ai.evaluate(printer_id, status, snap, load_config())
+    return status
 
 
 @app.get("/api/status")
@@ -662,6 +672,37 @@ async def api_status_printer(printer_id: str):
         runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
     snap = runtime.snapshot(printer_id)
     return _status_from_snapshot(printer_id, printer, snap)
+
+
+@app.get("/api/printers/{printer_id}/ai/status")
+async def api_ai_status(printer_id: str):
+    cfg = load_config()
+    printer = cfg.get("printers", {}).get(printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not configured")
+    if not runtime.get_client(printer_id):
+        runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
+    snap = runtime.snapshot(printer_id)
+    status = _status_from_snapshot(printer_id, printer, snap)
+    return {"ok": True, "portal_ai": status.get("portal_ai"), "status": status}
+
+
+@app.post("/api/printers/{printer_id}/ai/check-now")
+async def api_ai_check_now(printer_id: str):
+    portal_ai.reset(printer_id)
+    return await api_ai_status(printer_id)
+
+
+@app.post("/api/printers/{printer_id}/ai/feedback")
+async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
+    cfg = load_config()
+    printer = cfg.get("printers", {}).get(printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not configured")
+    snap = runtime.snapshot(printer_id)
+    row = portal_ai.feedback(printer_id, body.label, body.note, snap or {})
+    log("info", f"Portal AI feedback: {body.label} {body.note}", "portal_ai", printer=printer_id)
+    return {"ok": True, "feedback": row}
 
 
 @app.get("/api/printers/{printer_id}/status")

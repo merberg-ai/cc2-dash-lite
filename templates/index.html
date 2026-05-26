@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block page_id %}dashboard{% endblock %}
+{% block content %}
+<section class="dashboard" id="dashboard">
+  {% for card in cards %}
+    {% if card.enabled and card.id == 'camera_status' %}
+    <article class="card dashboard-card fade-in" data-card="camera_status" style="order: {{ card.order }}">
+      <div class="camera-wrap" id="cameraWrap">
+        <div class="camera-placeholder" id="cameraPlaceholder">
+          <span class="spinner"></span>
+          <span>Loading camera stream...</span>
+        </div>
+        {% if printer and cfg.dashboard.camera_autoload %}
+          <img id="cameraStream" class="camera-stream" alt="Printer camera stream" src="{{ printer.camera_url }}" onerror="window.cc2CameraFailed && window.cc2CameraFailed()" />
+        {% else %}
+          <img id="cameraStream" class="camera-stream hidden" alt="Printer camera stream" />
+        {% endif %}
+        <span class="live-badge"><span class="dot good"></span> LIVE</span>
+      </div>
+
+      <div class="progress-shell">
+        <div id="progressBar" class="progress-bar" style="width:0%"></div>
+        <span id="progressText" class="progress-text">0.0%</span>
+      </div>
+
+      <div class="status-grid two">
+        <div>
+          <strong>Status</strong>
+          <span id="statusText" class="warn-text">Loading...</span>
+        </div>
+        <div>
+          <strong>Portal AI 🤖</strong>
+          <span id="assistantText">Standing By</span>
+        </div>
+      </div>
+
+      <hr />
+
+      <div class="status-grid three">
+        <div><strong>Print Time</strong><span id="printTime">-</span></div>
+        <div><strong>Time Left</strong><span id="timeLeft">-</span></div>
+        <div><strong>Completion</strong><span id="completion">-</span></div>
+      </div>
+
+      <hr />
+
+      <div class="status-grid three">
+        <div><strong>Filament Used</strong><span id="filamentUsed">-</span></div>
+        <div><strong>Hotend</strong><span id="hotendTemp">- / off</span></div>
+        <div><strong>Bed</strong><span id="bedTemp">- / off</span></div>
+      </div>
+
+      <hr />
+
+      <div class="file-line">
+        <strong>File</strong>
+        <span id="fileName">-</span>
+      </div>
+
+      <a class="button primary full" id="portalButton" href="{{ printer.portal_url if printer else '/setup' }}" target="_blank" rel="noreferrer">Go To Elegoo Web Portal</a>
+    </article>
+    {% elif card.enabled and card.id == 'quick_actions' %}
+    <article class="card dashboard-card fade-in" data-card="quick_actions" style="order: {{ card.order }}">
+      <h2>Quick Actions</h2>
+      <div class="button-stack">
+      {% for action_id, action in actions %}
+        {% if action.visible %}
+        <button class="button {{ action.style|default('primary') }} action-button" data-action="{{ action_id }}" data-confirm="{{ action.confirm_text }}" data-requires-confirm="{{ 'true' if action.requires_confirm else 'false' }}" data-spinner-text="{{ action.spinner_text }}">
+          <span class="button-label">{{ action.label }}</span>
+        </button>
+        {% endif %}
+      {% endfor %}
+      </div>
+    </article>
+    {% elif card.enabled and card.id == 'connection_info' %}
+    <article class="card dashboard-card fade-in" data-card="connection_info" style="order: {{ card.order }}">
+      <div class="card-title-row">
+        <h2>Connection</h2>
+        <span class="pill" id="lastUpdate">Waiting...</span>
+      </div>
+      <div class="info-list">
+        <div><span>Printer IP</span><strong id="printerHost">{{ printer.host if printer else '-' }}</strong></div>
+        <div><span>API</span><strong id="apiState">Checking...</strong></div>
+        <div><span>Portal</span><strong id="portalState">{{ printer.portal_url if printer else '-' }}</strong></div>
+        <div><span>Camera</span><strong id="cameraState">{{ printer.camera_url if printer else '-' }}</strong></div>
+      </div>
+    </article>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block page_id %}setup{% endblock %}
+{% block content %}
+<section class="setup-stack fade-in">
+  <article class="card hero-card">
+    <h1>First Run Setup</h1>
+    <p>No paired printer is configured yet. We’ll scan your LAN, select the Centauri Carbon 2, ask for the printer PIN/access code, save the serial, then drop you into the dashboard.</p>
+    <div class="mini-note">Default access is limited to your configured LAN ranges. Boring security is good security.</div>
+  </article>
+
+  <article class="card">
+    <div class="step-title"><span class="step-badge">1</span><h2>Scan for printers</h2></div>
+    <label class="field-label" for="scanSubnet">Subnet or host</label>
+    <input id="scanSubnet" class="input" value="{{ default_subnet }}" placeholder="192.168.1.0/24 or 192.168.1.x" />
+    <button id="scanButton" class="button primary full"><span class="button-label">Scan / Discover Printers</span></button>
+    <div id="scanStatus" class="scan-status hidden"><span class="spinner"></span><span>Scanning...</span></div>
+    <div id="scanResults" class="result-list"></div>
+  </article>
+
+  <article class="card">
+    <div class="step-title"><span class="step-badge">2</span><h2>Manual add</h2></div>
+    <p class="muted">Use this if the scan misses the printer but you know its IP.</p>
+    <label class="field-label" for="manualHost">Printer IP</label>
+    <input id="manualHost" class="input" placeholder="192.168.1.87" />
+    <label class="field-label" for="manualName">Display name</label>
+    <input id="manualName" class="input" value="Centauri Carbon 2" />
+    <label class="field-label" for="manualSerial">Serial number</label>
+    <input id="manualSerial" class="input" placeholder="Printer serial / SN" />
+    <label class="field-label" for="manualPin">Printer PIN / access code</label>
+    <input id="manualPin" class="input" type="password" inputmode="numeric" value="123456" placeholder="123456" />
+    <button id="manualAddButton" class="button secondary full"><span class="button-label">Pair / Save Manual Printer</span></button>
+  </article>
+
+  <article class="card">
+    <div class="step-title"><span class="step-badge">3</span><h2>Theme</h2></div>
+    <select id="setupTheme" class="input">
+      {% for id, t in themes.items() %}
+      <option value="{{ id }}" {% if cfg.app.theme == id %}selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+    </select>
+    <button id="saveSetupTheme" class="button secondary full"><span class="button-label">Save Theme</span></button>
+  </article>
+</section>
+{% endblock %}

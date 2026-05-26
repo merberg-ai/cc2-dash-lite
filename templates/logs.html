@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block page_id %}logs{% endblock %}
+{% block content %}
+<section class="settings-stack fade-in">
+  <article class="card hero-card">
+    <h1>Console</h1>
+    <p>Live-ish status and debug output from scans, setup, settings saves, and commands.</p>
+  </article>
+  <article class="card console-card">
+    <div class="card-title-row">
+      <h2>Logs</h2>
+      <button id="refreshLogs" class="button tiny secondary"><span class="button-label">Refresh</span></button>
+    </div>
+    <div id="logOutput" class="console-output"></div>
+  </article>
+</section>
+{% endblock %}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -74,6 +75,15 @@ if ELEGEEGO_WEB_DIR.exists():
     app.mount("/elegoo", StaticFiles(directory=str(ELEGEEGO_WEB_DIR), html=True), name="elegoo")
 templates = Jinja2Templates(directory=str(APP_ROOT / "templates"))
 runtime = LitePrinterRuntime()
+_AI_MONITOR_TASK: asyncio.Task | None = None
+_AI_MONITOR_STATE: dict[str, Any] = {
+    "running": False,
+    "iterations": 0,
+    "last_loop_epoch": None,
+    "last_loop": None,
+    "last_error": None,
+}
+_AI_MONITOR_LAST_LOGGED: dict[str, dict[str, Any]] = {}
 
 
 class ScanRequest(BaseModel):
@@ -192,13 +202,102 @@ async def lan_guard(request: Request, call_next):
     return await call_next(request)
 
 
+def _level_rank(level: str | None) -> int:
+    ranks = {"disabled": 0, "low": 10, "watch": 25, "medium": 50, "high": 75}
+    return ranks.get(str(level or "low").lower(), 0)
+
+
+def _start_ai_monitor() -> None:
+    global _AI_MONITOR_TASK
+    if _AI_MONITOR_TASK and not _AI_MONITOR_TASK.done():
+        return
+    _AI_MONITOR_TASK = asyncio.create_task(_ai_monitor_loop())
+    log("info", "Portal AI background watchdog task started", "portal_ai")
+
+
+def _should_log_ai_change(printer_id: str, result: dict[str, Any], ai_cfg: dict[str, Any]) -> bool:
+    min_level = str(ai_cfg.get("background_min_log_level", "watch") or "watch").lower()
+    if _level_rank(result.get("level")) < _level_rank(min_level):
+        return False
+    previous = _AI_MONITOR_LAST_LOGGED.get(printer_id) or {}
+    if not previous:
+        return True
+    if not ai_cfg.get("background_log_changes", True):
+        return True
+    old_level = previous.get("level")
+    old_state = previous.get("state")
+    old_risk = int(previous.get("risk") or 0)
+    risk = int(result.get("risk") or 0)
+    return old_level != result.get("level") or old_state != result.get("state") or abs(risk - old_risk) >= 10
+
+
+async def _ai_monitor_loop() -> None:
+    """Background Portal AI watchdog.
+
+    This keeps the rule engine evaluating even when no browser is open. The
+    dashboard can then simply display the latest cached result, while this loop
+    handles state/risk changes and logging in the running backend service.
+    """
+    await asyncio.sleep(2)
+    _AI_MONITOR_STATE["running"] = True
+    while True:
+        try:
+            cfg = load_config()
+            ai_cfg = cfg.get("portal_ai", {}) or {}
+            interval = max(5.0, min(600.0, float(ai_cfg.get("check_interval_seconds") or 30)))
+            if ai_cfg.get("enabled", True) and ai_cfg.get("background_monitor_enabled", True):
+                printers = cfg.get("printers") or {}
+                for printer_id, printer in list(printers.items()):
+                    if not (printer or {}).get("enabled", True):
+                        continue
+                    if not runtime.get_client(printer_id):
+                        runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
+                    snap = runtime.snapshot(printer_id)
+                    status = _status_from_snapshot(printer_id, printer, snap, ai_source="background", force_ai_evaluate=True)
+                    result = status.get("portal_ai") or {}
+                    if result:
+                        if _should_log_ai_change(printer_id, result, ai_cfg):
+                            risk = int(result.get("risk") or 0)
+                            level = str(result.get("level") or "low").upper()
+                            reason = (result.get("reasons") or ["No reason returned."])[0]
+                            log_level = "warning" if risk >= 50 else "info"
+                            log(log_level, f"AI watchdog {level} {risk}%: {reason}", "portal_ai", printer=printer_id)
+                            _AI_MONITOR_LAST_LOGGED[printer_id] = {
+                                "risk": risk,
+                                "level": result.get("level"),
+                                "state": result.get("state"),
+                                "ts": time.time(),
+                            }
+                _AI_MONITOR_STATE["iterations"] = int(_AI_MONITOR_STATE.get("iterations") or 0) + 1
+                _AI_MONITOR_STATE["last_loop_epoch"] = time.time()
+                _AI_MONITOR_STATE["last_loop"] = time.strftime("%H:%M:%S")
+                _AI_MONITOR_STATE["last_error"] = None
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            _AI_MONITOR_STATE["running"] = False
+            raise
+        except Exception as exc:
+            _AI_MONITOR_STATE["last_error"] = str(exc)
+            log("error", f"Portal AI watchdog error: {exc}", "portal_ai")
+            await asyncio.sleep(15)
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
     runtime.start_all()
+    _start_ai_monitor()
 
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    global _AI_MONITOR_TASK
+    if _AI_MONITOR_TASK:
+        _AI_MONITOR_TASK.cancel()
+        try:
+            await _AI_MONITOR_TASK
+        except asyncio.CancelledError:
+            pass
+        _AI_MONITOR_TASK = None
     runtime.stop_all()
 
 
@@ -597,12 +696,32 @@ async def api_delete_printer(printer_id: str):
     return {"ok": True}
 
 
-def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Optional[dict[str, Any]]) -> dict[str, Any]:
+def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[dict[str, Any]], cfg: dict[str, Any], ai_source: str = "request", force_ai_evaluate: bool = False) -> dict[str, Any]:
+    ai_cfg = cfg.get("portal_ai", {}) or {}
+    use_cached = (
+        ai_source == "request"
+        and ai_cfg.get("enabled", True)
+        and ai_cfg.get("background_monitor_enabled", True)
+        and not force_ai_evaluate
+    )
+    if use_cached:
+        cached = portal_ai.cached_result(printer_id)
+        max_age = max(90.0, float(ai_cfg.get("check_interval_seconds") or 30) * 3.0)
+        if cached and (time.time() - float(cached.get("last_check_epoch") or 0)) <= max_age:
+            cached["served_from_cache"] = True
+            cached["background_monitor_enabled"] = True
+            status["portal_ai"] = cached
+            return status
+    status["portal_ai"] = portal_ai.evaluate(printer_id, status, snap, cfg, source=ai_source)
+    return status
+
+
+def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Optional[dict[str, Any]], ai_source: str = "request", force_ai_evaluate: bool = False) -> dict[str, Any]:
     pcfg = printer_dict_to_config(printer_id, printer)
     if not snap:
-        status = PrinterClient(printer_id, printer, load_config())._empty_status("CC2 client is not running", reachable=False)
-        status["portal_ai"] = portal_ai.evaluate(printer_id, status, None, load_config())
-        return status
+        cfg = load_config()
+        status = PrinterClient(printer_id, printer, cfg)._empty_status("CC2 client is not running", reachable=False)
+        return _attach_ai_status(printer_id, status, None, cfg, ai_source=ai_source, force_ai_evaluate=force_ai_evaluate)
     n = snap.get("normalized") or {}
     temps = n.get("temps") or {}
     nozzle = temps.get("nozzle") or {}
@@ -646,8 +765,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }
-    status["portal_ai"] = portal_ai.evaluate(printer_id, status, snap, load_config())
-    return status
+    return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate)
 
 
 @app.get("/api/status")
@@ -672,6 +790,28 @@ async def api_status_printer(printer_id: str):
         runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
     snap = runtime.snapshot(printer_id)
     return _status_from_snapshot(printer_id, printer, snap)
+
+
+@app.get("/api/ai/monitor")
+async def api_ai_monitor_status():
+    cfg = load_config()
+    ai_cfg = cfg.get("portal_ai", {}) or {}
+    cached = {}
+    for printer_id in (cfg.get("printers") or {}).keys():
+        cached[printer_id] = portal_ai.cached_result(printer_id)
+    return {
+        "ok": True,
+        "running": bool(_AI_MONITOR_TASK and not _AI_MONITOR_TASK.done()),
+        "state": _AI_MONITOR_STATE,
+        "config": {
+            "enabled": bool(ai_cfg.get("enabled", True)),
+            "background_monitor_enabled": bool(ai_cfg.get("background_monitor_enabled", True)),
+            "check_interval_seconds": ai_cfg.get("check_interval_seconds", 30),
+            "background_log_changes": bool(ai_cfg.get("background_log_changes", True)),
+            "background_min_log_level": ai_cfg.get("background_min_log_level", "watch"),
+        },
+        "cached": cached,
+    }
 
 
 @app.get("/api/printers/{printer_id}/ai/status")

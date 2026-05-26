@@ -26,6 +26,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - Configurable font packs using local/system font stacks
 - Console/log page
 - Portal AI v1 telemetry failure detection with explainable risk score
+- Portal AI background watchdog monitoring, even when the browser is closed
 - Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm tuning
 - LAN allowlist guard, defaulting to `192.168.1.0/24` plus localhost
 - Install/uninstall scripts for Raspberry Pi/Linux
@@ -34,7 +35,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.1.0.zip
+unzip cc2-dash-lite-1.2.0.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -135,15 +136,18 @@ Filament sensor says no filament while printing
 Printer-reported camera availability hints
 ```
 
+The background watchdog starts with the FastAPI service and keeps evaluating configured printers on a timer, even if nobody has the dashboard open. The dashboard displays the latest cached watchdog result when available, so browser polling is no longer what keeps the AI alive.
+
 The API returns the score under `portal_ai` in `/api/status` and exposes dedicated endpoints:
 
 ```text
+GET  /api/ai/monitor
 GET  /api/printers/<printer_id>/ai/status
 POST /api/printers/<printer_id>/ai/check-now
 POST /api/printers/<printer_id>/ai/feedback
 ```
 
-Settings → Portal AI controls the rule toggles and thresholds. Auto-pause settings are stored for the future, but this build remains advisory-only. No robot panic button yet.
+Settings → Portal AI controls the rule toggles, thresholds, background monitor interval, and watchdog logging level. Auto-pause settings are stored for the future, but this build remains advisory-only. No robot panic button yet.
 
 ## Commands and safety
 
@@ -301,4 +305,14 @@ The top menu now has a configurable **File Manager menu option** toggle under **
 
 - Portal AI adds configurable multi-color / filament-swap progress-stall grace.
 - Feedback labels are now also persisted to `data/ai_feedback.jsonl` for later tuning.
+
+
+
+## v1.2.0 notes
+
+- Portal AI now has a backend background watchdog task that starts with the service.
+- Monitoring continues when the dashboard/browser is closed.
+- `/api/status` now serves cached watchdog results when available instead of requiring the browser to drive AI evaluation.
+- Added Settings → Portal AI controls for background monitor enable/disable, check interval, log-on-change behavior, and minimum watchdog log level.
+- Added `/api/ai/monitor` for watchdog status/debug info.
 

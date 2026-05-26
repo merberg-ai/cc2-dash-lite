@@ -62,7 +62,11 @@ class PortalAIDetector:
     def recent_feedback(self, limit: int = 50) -> list[dict[str, Any]]:
         return list(self._feedback)[-max(1, min(limit, 200)):]
 
-    def evaluate(self, printer_id: str, status: dict[str, Any], snap: dict[str, Any] | None, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    def cached_result(self, printer_id: str) -> dict[str, Any] | None:
+        result = (self._state.get(printer_id) or {}).get("last_result")
+        return dict(result) if isinstance(result, dict) else None
+
+    def evaluate(self, printer_id: str, status: dict[str, Any], snap: dict[str, Any] | None, cfg: dict[str, Any] | None = None, source: str = "request") -> dict[str, Any]:
         cfg = cfg or {}
         ai_cfg = cfg.get("portal_ai", {}) or {}
         if not ai_cfg.get("enabled", True):
@@ -75,6 +79,7 @@ class PortalAIDetector:
                 "reasons": ["Portal AI is disabled in settings."],
                 "last_check_epoch": time.time(),
                 "last_check": time.strftime("%H:%M:%S"),
+                "source": source,
             }
 
         now = time.time()
@@ -273,6 +278,8 @@ class PortalAIDetector:
             "progress_stuck_threshold_minutes": effective_stuck_minutes if active_print else _as_float(ai_cfg.get("progress_stuck_minutes"), 8.0),
             "last_check_epoch": now,
             "last_check": time.strftime("%H:%M:%S"),
+            "source": source,
+            "background_monitor_enabled": bool(ai_cfg.get("background_monitor_enabled", True)),
             "rules": {
                 "telemetry": bool(ai_cfg.get("telemetry_rules_enabled", True)),
                 "camera": bool(ai_cfg.get("camera_rules_enabled", True)),

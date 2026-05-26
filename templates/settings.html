@@ -70,6 +70,29 @@
         <div class="setting-controls"><label><input id="portalAIEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.enabled %}checked{% endif %}> enabled</label></div>
       </div>
       <div class="setting-row">
+        <div><strong>Background watchdog</strong><small>Keeps Portal AI monitoring from the backend service even when no browser is open.</small></div>
+        <div class="setting-controls"><label><input id="aiBackgroundMonitorEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.background_monitor_enabled|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Background check interval</strong><small>Seconds between watchdog checks. Lower is more responsive; higher is quieter.</small></div>
+        <div class="setting-controls"><input id="aiCheckIntervalSeconds" class="input" type="number" min="5" max="600" step="5" value="{{ cfg.portal_ai.check_interval_seconds|default(30) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Log state/risk changes only</strong><small>Prevents the watchdog from spamming the log every check.</small></div>
+        <div class="setting-controls"><label><input id="aiBackgroundLogChanges" class="toggle" type="checkbox" {% if cfg.portal_ai.background_log_changes|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Minimum watchdog log level</strong><small>Only write background AI log entries at or above this risk level.</small></div>
+        <div class="setting-controls">
+          <select id="aiBackgroundMinLogLevel" class="input">
+            <option value="low" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'low' %}selected{% endif %}>low</option>
+            <option value="watch" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'watch' %}selected{% endif %}>watch</option>
+            <option value="medium" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'medium' %}selected{% endif %}>medium</option>
+            <option value="high" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'high' %}selected{% endif %}>high</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-row">
         <div><strong>Telemetry rules</strong><small>Printer error state, MQTT freshness, temperatures, filament sensor, and progress movement.</small></div>
         <div class="setting-controls"><label><input id="aiTelemetryRules" class="toggle" type="checkbox" {% if cfg.portal_ai.telemetry_rules_enabled %}checked{% endif %}> enabled</label></div>
       </div>

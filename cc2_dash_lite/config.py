@@ -102,7 +102,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "portal_ai": {
         "enabled": True,
+        "background_monitor_enabled": True,
         "check_interval_seconds": 30,
+        "background_log_changes": True,
+        "background_min_log_level": "watch",
         "telemetry_rules_enabled": True,
         "camera_rules_enabled": True,
         "opencv_rules_enabled": False,

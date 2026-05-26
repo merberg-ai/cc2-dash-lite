@@ -67,7 +67,8 @@
     const reason = (ai.reasons || [])[0] || 'No warning rules are currently triggered.';
     setText('assistantReason', reason);
     setText('aiLevel', `${level.toUpperCase()} · ${risk}%`);
-    setText('aiLastCheck', ai.last_check ? `checked ${ai.last_check}` : 'checking...');
+    const aiSource = ai.source === 'background' || ai.served_from_cache ? 'watchdog' : 'checked';
+    setText('aiLastCheck', ai.last_check ? `${aiSource} ${ai.last_check}` : 'checking...');
     const bar = $('#aiRiskBar');
     if (bar) {
       bar.style.width = `${risk}%`;
@@ -379,6 +380,10 @@
     if (saveAI) saveAI.addEventListener('click', async () => {
       cfg.portal_ai = cfg.portal_ai || {};
       cfg.portal_ai.enabled = !!$('#portalAIEnabled')?.checked;
+      cfg.portal_ai.background_monitor_enabled = !!$('#aiBackgroundMonitorEnabled')?.checked;
+      cfg.portal_ai.check_interval_seconds = Number($('#aiCheckIntervalSeconds')?.value || 30);
+      cfg.portal_ai.background_log_changes = !!$('#aiBackgroundLogChanges')?.checked;
+      cfg.portal_ai.background_min_log_level = $('#aiBackgroundMinLogLevel')?.value || 'watch';
       cfg.portal_ai.telemetry_rules_enabled = !!$('#aiTelemetryRules')?.checked;
       cfg.portal_ai.camera_rules_enabled = !!$('#aiCameraRules')?.checked;
       cfg.portal_ai.progress_stuck_minutes = Number($('#aiProgressStuckMinutes')?.value || 8);

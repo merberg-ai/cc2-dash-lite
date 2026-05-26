@@ -234,3 +234,11 @@ Safety note: `Start Print`, `Delete File`, and `Delete History/Timelapse` are bl
 - Files/timelapse read endpoints no longer convert printer `error_code` responses into HTTP 500s.
 - Timelapse listing now loads through print history like the stock Elegoo portal; method 1051 is kept for export only.
 - USB file-list errors now show a friendly message instead of crashing the Files page.
+
+
+## 0.3.2 notes
+
+- Timelapse tab now mirrors the stock Elegoo portal Video List behavior more closely.
+- Backend filters Print History rows for timelapse records using TimeLapseVideoStatus 1/2 or video URL/size/duration markers.
+- Added a fallback attempt for task-detail lookup using method 1037 when history rows do not include video metadata directly.
+- UI now shows size, creation time, duration, generated/export-needed status, and download/export actions.

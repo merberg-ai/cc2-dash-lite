@@ -39,6 +39,7 @@ from .cc2.commands import (
     GET_FILE_LIST,
     GET_FILE_THUMBNAIL,
     GET_HISTORY_TASK,
+    GET_HISTORY_TASK_DETAIL,
     GET_TIME_LAPSE_VIDEO_LIST,
     PAUSE_PRINT,
     RESUME_PRINT,
@@ -49,6 +50,7 @@ from .cc2.commands import (
     STOP_PRINT,
     delete_file_params,
     history_delete_params,
+    history_detail_params,
     file_detail_params,
     file_list_params,
     file_thumbnail_params,
@@ -785,6 +787,143 @@ async def api_canvas(printer_id: str):
     return await asyncio.to_thread(_send_command, printer_id, GET_CANVAS_STATUS, {}, True, 10.0)
 
 
+
+def _unwrap_command_payload(payload: Any) -> Any:
+    """Accept cc2-dash-lite command wrappers and raw firmware replies."""
+    root = payload
+    if isinstance(root, dict) and "result" in root:
+        root = root.get("result")
+    if isinstance(root, dict) and "result" in root and len(root) <= 3:
+        inner = root.get("result")
+        if isinstance(inner, (dict, list)):
+            root = inner
+    return root
+
+
+def _first_array(root: Any, candidate_keys: list[str]) -> list[Any]:
+    if isinstance(root, list):
+        return root
+    if not isinstance(root, dict):
+        return []
+    for key in candidate_keys:
+        val = root.get(key)
+        if isinstance(val, list):
+            return val
+        if isinstance(val, dict):
+            nested = _first_array(val, candidate_keys)
+            if nested:
+                return nested
+    for val in root.values():
+        if isinstance(val, dict):
+            nested = _first_array(val, candidate_keys)
+            if nested:
+                return nested
+    return []
+
+
+def _field(d: dict[str, Any], *names: str, default: Any = None) -> Any:
+    for name in names:
+        if name in d and d.get(name) not in (None, ""):
+            return d.get(name)
+    return default
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _absolute_printer_url(pcfg: Any, url: str) -> str:
+    if not url:
+        return ""
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    if url.startswith("//"):
+        return "http:" + url
+    if not url.startswith("/"):
+        url = "/" + url
+    return f"http://{pcfg.host}{url}"
+
+
+def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    task_id = _field(item, "task_id", "TaskId", "taskId", "id", "Id")
+    name = _field(item, "task_name", "TaskName", "filename", "FileName", "name", "Name", default="")
+    status = _as_int(_field(item, "time_lapse_video_status", "TimeLapseVideoStatus", "video_status", "VideoStatus", default=0), 0)
+    url = str(_field(item, "time_lapse_video_url", "TimeLapseVideoUrl", "video_url", "VideoUrl", "url", "Url", default="") or "")
+    size = _field(item, "time_lapse_video_size", "TimeLapseVideoSize", "video_size", "VideoSize", "file_size", "FileSize", "size", "Size", default=0)
+    duration = _field(item, "time_lapse_video_duration", "TimeLapseVideoDuration", "video_duration", "VideoDuration", "duration", "Duration", default=0)
+    begin = _field(item, "begin_time", "BeginTime", "create_time", "CreateTime", "start_time", "StartTime", "ctime", "CTime", default="")
+    end = _field(item, "end_time", "EndTime", "finish_time", "FinishTime", default="")
+    # Stock portal Video List includes statuses 1 (captured/not generated) and 2 (generated).
+    # Include rows with a direct URL/size/duration too, because some firmware uses different status codes.
+    has_video_marker = status in (1, 2) or bool(url) or _as_float(size, 0) > 0 or _as_float(duration, 0) > 0
+    if not has_video_marker:
+        return None
+    return {
+        "task_id": task_id,
+        "task_name": name or f"Task {task_id}",
+        "begin_time": begin,
+        "end_time": end,
+        "task_status": _field(item, "task_status", "TaskStatus", "status", "Status", default=""),
+        "time_lapse_video_status": status,
+        "time_lapse_video_url": url,
+        "download_url": _absolute_printer_url(pcfg, url),
+        "time_lapse_video_size": size,
+        "time_lapse_video_duration": duration,
+        "raw": item,
+    }
+
+
+def _extract_history_items(root: Any) -> list[Any]:
+    return _first_array(root, [
+        "history_task_list", "HistoryTaskList", "historyTaskList", "task_list", "TaskList",
+        "tasks", "Tasks", "items", "Items", "list", "List", "data", "Data",
+        "HistoryDetailList", "history_detail_list", "HistoryData", "history_data",
+    ])
+
+
+def _try_history_details(printer_id: str, ids: list[Any]) -> list[Any]:
+    ids = [x for x in ids if x not in (None, "")]
+    if not ids:
+        return []
+    # Mirror the stock local-websocket behavior first: CmdGetTaskDetails uses {Id:[...]}.
+    shapes = [
+        history_detail_params(ids),
+        {"id": ids},
+        {"task_id": ids},
+        {"task_ids": ids},
+        {"list": ids},
+    ]
+    for params in shapes:
+        try:
+            detail_payload = _send_command(printer_id, GET_HISTORY_TASK_DETAIL, params, True, 12.0, False)
+            root = _unwrap_command_payload(detail_payload)
+            # Ignore printer-level error replies such as error_code 1003.
+            if isinstance(root, dict) and _as_int(root.get("error_code") or root.get("ErrorCode"), 0) != 0:
+                continue
+            arr = _first_array(root, ["HistoryDetailList", "history_detail_list", "details", "Details", "items", "Items", "data", "Data", "list", "List"])
+            if arr:
+                return arr
+        except Exception:
+            continue
+    return []
+
+
 @app.get("/api/printers/{printer_id}/history")
 async def api_history(printer_id: str):
     return await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
@@ -792,10 +931,43 @@ async def api_history(printer_id: str):
 
 @app.get("/api/printers/{printer_id}/timelapse")
 async def api_timelapse(printer_id: str):
-    # The stock Elegoo portal lists timelapse/video records through print history.
-    # Method 1051 is used for export/generation and returns error_code 1003 when
-    # called with no URL/task token on current CC2 firmware.
-    return await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
+    # The stock Elegoo portal's "Video List" is derived from Print History, not
+    # the file-list endpoint. It filters history rows where TimeLapseVideoStatus
+    # is 1 (captured but not generated) or 2 (generated), then export/downloads
+    # with method 1051 when needed.
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+
+    history_payload = await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
+    root = _unwrap_command_payload(history_payload)
+    if isinstance(root, dict) and _as_int(root.get("error_code") or root.get("ErrorCode"), 0) != 0:
+        return {"ok": False, "result": root, "videos": [], "total": 0}
+
+    history_items = _extract_history_items(root)
+    videos = [v for v in (_normalize_timelapse_record(item, pcfg) for item in history_items) if v]
+
+    # Some stock-web portal paths first fetch task ids, then task details. Try the
+    # same pattern if the basic history payload contains no video-marked records.
+    detail_items: list[Any] = []
+    if not videos and history_items:
+        ids: list[Any] = []
+        for item in history_items[:80]:
+            if isinstance(item, dict):
+                ids.append(_field(item, "task_id", "TaskId", "taskId", "id", "Id"))
+            else:
+                ids.append(item)
+        detail_items = await asyncio.to_thread(_try_history_details, printer_id, ids)
+        videos = [v for v in (_normalize_timelapse_record(item, pcfg) for item in detail_items) if v]
+
+    result = {
+        "error_code": 0,
+        "total": len(videos),
+        "raw_history_total": len(history_items),
+        "raw_detail_total": len(detail_items),
+        "videos": videos,
+    }
+    return {"ok": True, "result": result, "videos": videos, "total": len(videos)}
 
 
 @app.post("/api/printers/{printer_id}/timelapse/export")

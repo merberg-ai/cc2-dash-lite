@@ -580,7 +580,30 @@
   }
 
   function timelapseUrlOf(item) {
+    return item?.download_url || item?.DownloadUrl || item?.time_lapse_video_url || item?.TimeLapseVideoUrl || item?.video_url || item?.VideoUrl || item?.url || item?.Url || '';
+  }
+
+  function timelapseRawUrlOf(item) {
     return item?.time_lapse_video_url || item?.TimeLapseVideoUrl || item?.video_url || item?.VideoUrl || item?.url || item?.Url || '';
+  }
+
+  function timelapseStatusOf(item) {
+    return Number(item?.time_lapse_video_status ?? item?.TimeLapseVideoStatus ?? item?.video_status ?? item?.VideoStatus ?? 0);
+  }
+
+  function timelapseSizeOf(item) {
+    return item?.time_lapse_video_size ?? item?.TimeLapseVideoSize ?? item?.video_size ?? item?.VideoSize ?? item?.file_size ?? item?.FileSize ?? item?.size ?? item?.Size ?? '';
+  }
+
+  function timelapseDurationOf(item) {
+    return item?.time_lapse_video_duration ?? item?.TimeLapseVideoDuration ?? item?.video_duration ?? item?.VideoDuration ?? item?.duration ?? item?.Duration ?? '';
+  }
+
+  function timelapseStatusText(status) {
+    if (status === 2) return 'generated';
+    if (status === 1) return 'needs export';
+    if (status === 3) return 'failed';
+    return status ? `status ${status}` : '';
   }
 
   async function loadTimelapseList() {
@@ -590,18 +613,21 @@
     setBoxLoading(box, loading, true, 'Loading timelapse records...');
     setButtonBusy(btn, true, 'Loading...');
     try {
-      // CC2 firmware/stock portal exposes timelapse records through print history.
-      // Method 1051 is export-only on some firmware and throws error_code 1003 with no token.
-      const data = await printerApi('/history');
+      // The stock portal's Video List is filtered from Print History rows with
+      // TimeLapseVideoStatus 1/2. Backend does the same filtering and normalizing.
+      const data = await printerApi('/timelapse');
       const printerErr = printerResultError(data);
       if (printerErr) {
         renderEmpty(box, 'Timelapse/history load returned a printer error.', printerErr);
         toast(printerErr, 'warn', 7000);
         return;
       }
-      let items = arrayFromAny(data, ['history_task_list', 'task_list', 'tasks', 'data', 'items', 'list', 'TimeLapseVideoList', 'time_lapse_video_list']);
+      let items = arrayFromAny(data, ['videos', 'time_lapse_video_list', 'TimeLapseVideoList', 'items', 'list']);
+      if (!items.length && Array.isArray(data?.videos)) items = data.videos;
       if (!items.length) {
-        renderEmpty(box, 'No timelapse/video records returned.', 'The printer may not have any exported videos yet, or this firmware may hide them until a completed task exists.');
+        const root = unwrapCommand(data);
+        const rawCount = root?.raw_history_total ?? data?.result?.raw_history_total ?? 0;
+        renderEmpty(box, 'No timelapse videos returned.', rawCount ? `History loaded (${rawCount} task(s)), but none were marked as timelapse video rows by the printer.` : 'The printer did not return any video records. The stock portal only shows history rows with timelapse status 1 or 2.');
         return;
       }
       box.className = 'file-list';
@@ -609,13 +635,24 @@
         const name = timelapseNameOf(item, i);
         const id = timelapseIdOf(item);
         const url = timelapseUrlOf(item);
-        const status = item?.time_lapse_video_status ?? item?.TimeLapseVideoStatus ?? item?.task_status ?? item?.status ?? '';
+        const rawUrl = timelapseRawUrlOf(item);
+        const status = timelapseStatusOf(item);
+        const statusLabel = timelapseStatusText(status);
         const start = item?.begin_time || item?.BeginTime || item?.create_time || item?.CreateTime || item?.start_time || item?.StartTime;
-        const meta = [`ID ${id ?? '-'}`, status ? `status ${status}` : '', fmtDate(start), url ? 'video URL ready' : 'export may be needed'].filter(Boolean).join(' · ');
+        const size = bytesHuman(timelapseSizeOf(item));
+        const duration = timelapseDurationOf(item);
+        const meta = [
+          size,
+          fmtDate(start),
+          duration !== '' && duration !== undefined && duration !== null ? `${duration}s` : '',
+          statusLabel,
+          url || rawUrl ? 'download ready' : 'export needed',
+          `ID ${id ?? '-'}`,
+        ].filter(Boolean).join(' · ');
         return `<div class="file-item" data-timelapse-index="${i}">
           <div class="file-main"><strong>${esc(name)}</strong><span>${esc(meta)}</span></div>
           <div class="file-actions">
-            <button class="button primary tiny" type="button" data-tl-download="${i}">Download</button>
+            <button class="button primary tiny" type="button" data-tl-download="${i}">${url ? 'Download' : 'Open'}</button>
             <button class="button secondary tiny" type="button" data-tl-export="${i}">Export</button>
             <button class="button danger tiny" type="button" data-tl-delete="${i}">Delete</button>
           </div>
@@ -644,7 +681,7 @@
   }
 
   async function exportTimelapse(item) {
-    const token = timelapseUrlOf(item) || item?.task_name || item?.TaskName || String(timelapseIdOf(item) ?? '');
+    const token = timelapseRawUrlOf(item) || timelapseUrlOf(item) || item?.task_name || item?.TaskName || String(timelapseIdOf(item) ?? '');
     if (!token) return toast('No task/video identifier found for export.', 'warn');
     const button = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     setButtonBusy(button, true, 'Exporting...');

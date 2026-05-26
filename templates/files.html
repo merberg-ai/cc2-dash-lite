@@ -4,7 +4,7 @@
 <section class="files-stack fade-in">
   <article class="card hero-card">
     <h1>File Manager</h1>
-    <p>Browse printer G-code files and timelapse/history video records from the configured Centauri Carbon 2.</p>
+    <p>Browse system G-code files separately from the stock-portal-style timelapse Video List.</p>
     {% if printer %}
     <div class="mini-note">Active printer: <strong>{{ printer.name }}</strong> · {{ printer.host }}</div>
     {% else %}
@@ -47,7 +47,7 @@
       <div class="card-title-row file-title-row">
         <div>
           <h2>Timelapse videos</h2>
-          <p>Load video/history records. Download opens any URL returned by firmware; Export asks the printer to generate one.</p>
+          <p>Loads the same kind of Video List shown by the stock Elegoo portal: history rows with timelapse status, size, creation time, and duration.</p>
         </div>
         <button class="button secondary tiny" id="refreshTimelapseButton" type="button"><span class="button-label">Refresh</span></button>
       </div>

@@ -191,6 +191,14 @@ def print_speed_params(mode: int) -> Dict[str, Any]:
     return {"mode": int(mode)}
 
 
+def history_detail_params(task_ids: list[str] | list[int] | str | int) -> Dict[str, Any]:
+    if not isinstance(task_ids, list):
+        task_ids = [task_ids]
+    # The stock local-websocket protocol uses {Id:[...]}; some firmware builds
+    # also accept lowercase/legacy names. Callers may try alternates when needed.
+    return {"Id": task_ids}
+
+
 def timelapse_export_params(url: str) -> Dict[str, Any]:
     return {"url": url}
 

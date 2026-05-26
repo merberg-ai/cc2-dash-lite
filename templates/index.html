@@ -28,9 +28,24 @@
           <strong>Status</strong>
           <span id="statusText" class="warn-text">Loading...</span>
         </div>
-        <div>
+        <div class="portal-ai-brief">
           <strong>Portal AI 🤖</strong>
           <span id="assistantText">Standing By</span>
+          <small id="assistantReason" class="ai-reason">Telemetry rules warming up...</small>
+        </div>
+      </div>
+
+      <div class="ai-panel" id="aiPanel">
+        <div class="ai-risk-row">
+          <span id="aiLevel" class="ai-pill low">Low</span>
+          <span id="aiLastCheck">checking...</span>
+        </div>
+        <div class="ai-risk-meter" aria-label="Portal AI risk score"><div id="aiRiskBar" class="ai-risk-bar" style="width:0%"></div></div>
+        <ul id="aiReasons" class="ai-reasons"><li>No warning rules are currently triggered.</li></ul>
+        <div class="ai-feedback" id="aiFeedbackButtons">
+          <button class="button secondary tiny ai-feedback-button" type="button" data-ai-feedback="looks_good">Looks Good</button>
+          <button class="button secondary tiny ai-feedback-button" type="button" data-ai-feedback="looks_bad">Looks Bad</button>
+          <button class="button secondary tiny ai-feedback-button" type="button" data-ai-feedback="false_alarm">False Alarm</button>
         </div>
       </div>
 

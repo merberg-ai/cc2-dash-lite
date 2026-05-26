@@ -100,6 +100,25 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "features": {
         "file_manager_enabled": True,
     },
+    "portal_ai": {
+        "enabled": True,
+        "background_monitor_enabled": True,
+        "check_interval_seconds": 30,
+        "background_log_changes": True,
+        "background_min_log_level": "watch",
+        "telemetry_rules_enabled": True,
+        "camera_rules_enabled": True,
+        "opencv_rules_enabled": False,
+        "vision_ai_enabled": False,
+        "progress_stuck_minutes": 8,
+        "multi_color_mode": "auto",
+        "multi_color_progress_stuck_minutes": 30,
+        "stale_status_seconds": 75,
+        "feedback_enabled": True,
+        "auto_pause_enabled": False,
+        "auto_pause_threshold": 90,
+        "require_multiple_bad_checks": 3
+    },
     "dashboard": {
         "refresh_interval_seconds": 3,
         "camera_autoload": True,

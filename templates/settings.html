@@ -62,6 +62,83 @@
   </article>
 
   <article class="card">
+    <h2>Portal AI 🤖</h2>
+    <p class="muted">Explainable failure detection using printer telemetry first: connection health, error states, stale status, progress stalls, temperatures, filament sensor hints, and camera availability hints. Vision/OpenCV hooks stay disabled for now.</p>
+    <div class="settings-list">
+      <div class="setting-row">
+        <div><strong>Enable Portal AI</strong><small>Turns the dashboard AI risk card on or off.</small></div>
+        <div class="setting-controls"><label><input id="portalAIEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.enabled %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Background watchdog</strong><small>Keeps Portal AI monitoring from the backend service even when no browser is open.</small></div>
+        <div class="setting-controls"><label><input id="aiBackgroundMonitorEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.background_monitor_enabled|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Background check interval</strong><small>Seconds between watchdog checks. Lower is more responsive; higher is quieter.</small></div>
+        <div class="setting-controls"><input id="aiCheckIntervalSeconds" class="input" type="number" min="5" max="600" step="5" value="{{ cfg.portal_ai.check_interval_seconds|default(30) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Log state/risk changes only</strong><small>Prevents the watchdog from spamming the log every check.</small></div>
+        <div class="setting-controls"><label><input id="aiBackgroundLogChanges" class="toggle" type="checkbox" {% if cfg.portal_ai.background_log_changes|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Minimum watchdog log level</strong><small>Only write background AI log entries at or above this risk level.</small></div>
+        <div class="setting-controls">
+          <select id="aiBackgroundMinLogLevel" class="input">
+            <option value="low" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'low' %}selected{% endif %}>low</option>
+            <option value="watch" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'watch' %}selected{% endif %}>watch</option>
+            <option value="medium" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'medium' %}selected{% endif %}>medium</option>
+            <option value="high" {% if (cfg.portal_ai.background_min_log_level|default('watch')) == 'high' %}selected{% endif %}>high</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Telemetry rules</strong><small>Printer error state, MQTT freshness, temperatures, filament sensor, and progress movement.</small></div>
+        <div class="setting-controls"><label><input id="aiTelemetryRules" class="toggle" type="checkbox" {% if cfg.portal_ai.telemetry_rules_enabled %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Camera health hints</strong><small>Uses printer-reported camera availability where available. Actual frame analysis comes later.</small></div>
+        <div class="setting-controls"><label><input id="aiCameraRules" class="toggle" type="checkbox" {% if cfg.portal_ai.camera_rules_enabled %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Progress stuck threshold</strong><small>Minutes without progress change before Portal AI becomes suspicious.</small></div>
+        <div class="setting-controls"><input id="aiProgressStuckMinutes" class="input" type="number" min="1" max="120" step="1" value="{{ cfg.portal_ai.progress_stuck_minutes }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Multi-color / swap grace</strong><small>Auto watches for filament-operation states. Always is useful for current multi-color prints with long purge pauses.</small></div>
+        <div class="setting-controls">
+          <select id="aiMultiColorMode" class="input">
+            <option value="auto" {% if (cfg.portal_ai.multi_color_mode|default('auto')) == 'auto' %}selected{% endif %}>auto</option>
+            <option value="always" {% if (cfg.portal_ai.multi_color_mode|default('auto')) == 'always' %}selected{% endif %}>always</option>
+            <option value="off" {% if (cfg.portal_ai.multi_color_mode|default('auto')) == 'off' %}selected{% endif %}>off</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Multi-color grace threshold</strong><small>Minutes without progress change before swap/purge pauses become suspicious.</small></div>
+        <div class="setting-controls"><input id="aiMultiColorStuckMinutes" class="input" type="number" min="5" max="180" step="1" value="{{ cfg.portal_ai.multi_color_progress_stuck_minutes|default(30) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Stale status threshold</strong><small>Seconds since last MQTT status update before the printer is considered stale.</small></div>
+        <div class="setting-controls"><input id="aiStaleStatusSeconds" class="input" type="number" min="15" max="600" step="5" value="{{ cfg.portal_ai.stale_status_seconds }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Feedback buttons</strong><small>Allows Looks Good / Looks Bad / False Alarm labels for future tuning.</small></div>
+        <div class="setting-controls"><label><input id="aiFeedbackEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.feedback_enabled %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Auto-pause</strong><small>Planned safety action. Stored in config, but this build does not auto-pause yet.</small></div>
+        <div class="setting-controls"><label><input id="aiAutoPauseEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.auto_pause_enabled %}checked{% endif %}> armed</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Auto-pause risk threshold</strong><small>Reserved for a later build after we trust the risk score.</small></div>
+        <div class="setting-controls"><input id="aiAutoPauseThreshold" class="input" type="number" min="50" max="100" step="5" value="{{ cfg.portal_ai.auto_pause_threshold }}"></div>
+      </div>
+    </div>
+    <button id="saveAIButton" class="button primary full"><span class="button-label">Save Portal AI</span></button>
+  </article>
+
+  <article class="card">
     <h2>Buttons / Quick Actions</h2>
     <p class="muted">Hide buttons, reorder them, or require confirmation.</p>
     <div id="actionSettings" class="settings-list"></div>

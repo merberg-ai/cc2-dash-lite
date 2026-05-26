@@ -231,7 +231,13 @@
     });
   }
 
-  async function savePrinter(host, name, portalUrl, cameraUrl, serial, accessCode) {
+  function refreshConfigEditor() {
+    const editor = $('#configEditor');
+    if (editor && cfg) editor.value = JSON.stringify(cfg, null, 2);
+  }
+
+  async function savePrinter(host, name, portalUrl, cameraUrl, serial, accessCode, options = {}) {
+    const redirect = options.redirect !== false;
     const data = await api('/api/printers', {
       method: 'POST',
       body: JSON.stringify({
@@ -241,44 +247,55 @@
         access_code: accessCode || '123456',
         portal_url: portalUrl,
         camera_url: cameraUrl,
-        set_default: true,
+        set_default: options.setDefault !== false,
         enabled: true,
         allow_commands: true,
         allow_dangerous_commands: false
       })
     });
     cfg = data.config;
-    toast('Printer saved. Opening dashboard...', 'success');
-    setTimeout(() => location.href = '/', 600);
+    refreshConfigEditor();
+    if (redirect) {
+      toast('Printer saved. Opening dashboard...', 'success');
+      setTimeout(() => location.href = '/', 600);
+    } else {
+      toast('Printer saved.', 'success');
+      renderSettings();
+    }
+    return data;
   }
 
-  function renderScanResults(candidates) {
-    const box = $('#scanResults');
+  function renderScanResults(candidates, targetId = 'scanResults', options = {}) {
+    const box = $('#' + targetId);
     if (!box) return;
+    const redirect = options.redirect !== false;
     box.innerHTML = '';
     if (!candidates.length) {
-      box.innerHTML = '<div class="result-item"><strong>No candidates found</strong><span>Try manual add or widen the subnet.</span></div>';
+      box.innerHTML = '<div class="result-item"><strong>No verified printers found</strong><span>Routers and generic web devices are hidden now. Try manual add if broadcast discovery is blocked.</span></div>';
       return;
     }
     candidates.forEach((c, idx) => {
       const item = document.createElement('div');
-      item.className = 'result-item';
-      const name = c.likely_printer ? 'Centauri candidate' : 'Network device';
+      item.className = 'result-item verified-printer-result';
       const serial = c.serial || '';
-      const model = c.machine_model || c.http_title || '';
+      const model = c.machine_model || c.http_title || 'Centauri Carbon 2';
+      const proof = (c.verification_proof || []).filter(Boolean).join(' • ');
+      const serialId = `${targetId}Serial${idx}`;
+      const pinId = `${targetId}Pin${idx}`;
       item.innerHTML = `
-        <strong>${name}: ${c.host}</strong>
-        <span>Ports: ${(c.open_ports || []).join(', ')} ${model ? ' • ' + model : ''}</span>
-        ${serial ? `<span>Serial: ${serial}</span>` : `<label class="field-label" for="scanSerial${idx}">Serial number</label><input id="scanSerial${idx}" class="input scan-serial" placeholder="Printer serial / SN" />`}
-        <label class="field-label" for="scanPin${idx}">Printer PIN / access code</label>
-        <input id="scanPin${idx}" class="input scan-pin" type="password" inputmode="numeric" value="123456" placeholder="123456" />
+        <strong>Verified Centauri: ${esc(c.host)}</strong>
+        <span>Ports: ${esc((c.open_ports || []).join(', ') || 'verified')} • ${esc(model)}</span>
+        ${proof ? `<span>Proof: ${esc(proof)}</span>` : `<span>Proof: Centauri discovery response</span>`}
+        ${serial ? `<span>Serial: ${esc(serial)}</span>` : `<label class="field-label" for="${serialId}">Serial number</label><input id="${serialId}" class="input scan-serial" placeholder="Printer serial / SN" />`}
+        <label class="field-label" for="${pinId}">Printer PIN / access code</label>
+        <input id="${pinId}" class="input scan-pin" type="password" inputmode="numeric" value="123456" placeholder="123456" />
         <button class="button primary full" style="margin-top:.65rem"><span class="button-label">Pair / Save This Printer</span></button>
       `;
       $('button', item).addEventListener('click', async e => {
         const pin = $('.scan-pin', item)?.value?.trim() || '123456';
         const serialValue = serial || $('.scan-serial', item)?.value?.trim() || c.host;
         setButtonBusy(e.currentTarget, true, 'Pairing...');
-        try { await savePrinter(c.host, c.host_name || c.machine_model || 'Centauri Carbon 2', c.portal_url, c.camera_url, serialValue, pin); }
+        try { await savePrinter(c.host, c.host_name || c.machine_model || 'Centauri Carbon 2', c.portal_url, c.camera_url, serialValue, pin, { redirect }); }
         catch (err) { toast(err.message, 'error'); setButtonBusy(e.currentTarget, false); }
       });
       box.appendChild(item);
@@ -295,7 +312,8 @@
       try {
         const data = await api('/api/scan', { method: 'POST', body: JSON.stringify({ subnet }) });
         renderScanResults(data.candidates || []);
-        toast(`Scan complete: ${(data.candidates || []).length} candidate(s)`, 'success');
+        const hidden = Number(data.hidden_count || 0);
+        toast(`Scan complete: ${(data.candidates || []).length} verified printer(s)${hidden ? `, ${hidden} non-printer device(s) hidden` : ''}`, 'success');
       } catch (err) {
         toast(err.message, 'error');
       } finally {
@@ -372,12 +390,85 @@
     if (printerBox) {
       const entries = Object.entries(cfg.printers || {});
       printerBox.innerHTML = entries.length ? entries.map(([id,p]) => `
-        <div class="setting-row">
-          <div><strong>${p.name || id}</strong><small>${p.host} • SN: ${p.serial || 'unknown'} • PIN: ${p.access_code_set ? 'saved' : 'missing'}</small></div>
-          <div class="setting-controls"><span class="pill">${cfg.app.default_printer === id ? 'Default' : id}</span></div>
+        <div class="printer-config-card" data-printer-id="${esc(id)}">
+          <div class="printer-config-head">
+            <div><strong>${esc(p.name || id)}</strong><small>${esc(p.host || '')} • SN: ${esc(p.serial || 'unknown')}</small></div>
+            <span class="pill">${cfg.app.default_printer === id ? 'Default' : esc(id)}</span>
+          </div>
+          <div class="grid-2 gap printer-edit-grid">
+            <label class="inline-field"><span class="field-label">Display name</span><input class="input printer-name" value="${esc(p.name || '')}" /></label>
+            <label class="inline-field"><span class="field-label">Host / IP</span><input class="input printer-host" value="${esc(p.host || '')}" /></label>
+            <label class="inline-field"><span class="field-label">Serial / SN</span><input class="input printer-serial" value="${esc(p.serial || '')}" /></label>
+            <label class="inline-field"><span class="field-label">PIN / access code</span><input class="input printer-pin" type="password" placeholder="leave blank to keep saved" /></label>
+            <label class="inline-field"><span class="field-label">MQTT port</span><input class="input printer-port" type="number" min="1" max="65535" value="${esc(p.port || 1883)}" /></label>
+          </div>
+          <div class="printer-toggle-row">
+            <label><input class="toggle printer-enabled" type="checkbox" ${p.enabled !== false ? 'checked' : ''}> enabled</label>
+            <label><input class="toggle printer-commands" type="checkbox" ${p.allow_commands !== false ? 'checked' : ''}> commands</label>
+            <label><input class="toggle printer-danger" type="checkbox" ${p.allow_dangerous_commands ? 'checked' : ''}> dangerous</label>
+          </div>
+          <div class="printer-action-row">
+            <button class="button primary tiny printer-save"><span class="button-label">Save</span></button>
+            <button class="button secondary tiny printer-default" ${cfg.app.default_printer === id ? 'disabled' : ''}><span class="button-label">Make Default</span></button>
+            <button class="button danger tiny printer-delete"><span class="button-label">Remove</span></button>
+          </div>
         </div>
-      `).join('') : '<div class="result-item"><strong>No printers configured</strong><span>Run setup to add one.</span></div>';
+      `).join('') : '<div class="result-item"><strong>No printers configured</strong><span>Scan or manually add one above.</span></div>';
+      bindPrinterManagerRows();
     }
+  }
+
+  function bindPrinterManagerRows() {
+    $$('#printerSettings [data-printer-id]').forEach(row => {
+      const id = row.dataset.printerId;
+      $('.printer-save', row)?.addEventListener('click', async e => {
+        const body = {
+          name: $('.printer-name', row)?.value?.trim() || 'Centauri Carbon 2',
+          host: $('.printer-host', row)?.value?.trim() || '',
+          serial: $('.printer-serial', row)?.value?.trim() || '',
+          port: Number($('.printer-port', row)?.value || 1883),
+          enabled: !!$('.printer-enabled', row)?.checked,
+          allow_commands: !!$('.printer-commands', row)?.checked,
+          allow_dangerous_commands: !!$('.printer-danger', row)?.checked,
+        };
+        const pin = $('.printer-pin', row)?.value?.trim();
+        if (pin) body.access_code = pin;
+        if (!body.host) return toast('Printer host/IP is required.', 'warn');
+        setButtonBusy(e.currentTarget, true, 'Saving...');
+        try {
+          const data = await api(`/api/printers/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify(body) });
+          cfg = data.config || cfg;
+          refreshConfigEditor();
+          renderSettings();
+          toast('Printer saved.', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+        finally { setButtonBusy(e.currentTarget, false); }
+      });
+      $('.printer-default', row)?.addEventListener('click', async e => {
+        setButtonBusy(e.currentTarget, true, 'Saving...');
+        try {
+          const data = await api(`/api/printers/${encodeURIComponent(id)}/default`, { method:'POST' });
+          cfg = data.config || cfg;
+          refreshConfigEditor();
+          renderSettings();
+          toast('Default printer updated.', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+        finally { setButtonBusy(e.currentTarget, false); }
+      });
+      $('.printer-delete', row)?.addEventListener('click', async e => {
+        const name = $('.printer-name', row)?.value?.trim() || id;
+        if (!confirm(`Remove printer "${name}"?`)) return;
+        setButtonBusy(e.currentTarget, true, 'Removing...');
+        try {
+          const data = await api(`/api/printers/${encodeURIComponent(id)}`, { method:'DELETE' });
+          cfg = data.config || cfg;
+          refreshConfigEditor();
+          renderSettings();
+          toast('Printer removed.', 'success');
+        } catch (err) { toast(err.message, 'error'); }
+        finally { setButtonBusy(e.currentTarget, false); }
+      });
+    });
   }
 
 
@@ -430,9 +521,42 @@
       populateFontSelects(data.font_stacks || []);
       renderSettings();
       populateOllamaModelSelect([], cfg?.portal_ai?.ollama_vision_model || 'llava');
-      const editor = $('#configEditor');
-      if (editor) editor.value = JSON.stringify(cfg, null, 2);
+      refreshConfigEditor();
     }).catch(err => toast(err.message, 'error'));
+
+    const managerScan = $('#managerScanButton');
+    if (managerScan) managerScan.addEventListener('click', async () => {
+      const subnet = $('#managerScanSubnet')?.value?.trim() || cfg?.network?.allowed_subnets?.[0] || '192.168.1.0/24';
+      const scanStatus = $('#managerScanStatus');
+      if (scanStatus) scanStatus.classList.remove('hidden');
+      setButtonBusy(managerScan, true, 'Scanning...');
+      try {
+        const data = await api('/api/scan', { method:'POST', body:JSON.stringify({ subnet }) });
+        renderScanResults(data.candidates || [], 'managerScanResults', { redirect:false });
+        const hidden = Number(data.hidden_count || 0);
+        toast(`Scan complete: ${(data.candidates || []).length} verified printer(s)${hidden ? `, ${hidden} non-printer device(s) hidden` : ''}`, 'success');
+      } catch (err) { toast(err.message, 'error'); }
+      finally {
+        if (scanStatus) scanStatus.classList.add('hidden');
+        setButtonBusy(managerScan, false);
+      }
+    });
+
+    const managerManual = $('#managerManualAddButton');
+    if (managerManual) managerManual.addEventListener('click', async () => {
+      const host = $('#managerManualHost')?.value?.trim() || '';
+      const name = $('#managerManualName')?.value?.trim() || 'Centauri Carbon 2';
+      const serial = $('#managerManualSerial')?.value?.trim() || host;
+      const pin = $('#managerManualPin')?.value?.trim() || '123456';
+      if (!host) return toast('Enter a printer IP/host first.', 'warn');
+      setButtonBusy(managerManual, true, 'Saving...');
+      try {
+        await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });
+        $('#managerManualHost').value = '';
+        $('#managerManualSerial').value = '';
+      } catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(managerManual, false); }
+    });
 
     const saveTheme = $('#saveThemeButton');
     if (saveTheme) saveTheme.addEventListener('click', async () => {

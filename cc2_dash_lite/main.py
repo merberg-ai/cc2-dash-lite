@@ -623,6 +623,49 @@ def _discovery_targets(subnet_or_host: str) -> list[str]:
     return out
 
 
+def _cc2_discovery_row(d: dict[str, Any], host: str | None = None, notes: list[str] | None = None) -> dict[str, Any] | None:
+    """Normalize a UDP method-7000 response into a UI scan row.
+
+    This is the proof-of-printer path. Generic HTTP/TCP results are not shown
+    unless a directed UDP CC2 probe verifies them first. That keeps routers,
+    Tasmota plugs, phones, and random web UIs from showing up as pairable
+    printer candidates just because port 80 answered.
+    """
+    host = host or d.get("ip")
+    if not host:
+        return None
+    serial = str(d.get("serial") or d.get("sn") or "").strip()
+    model = str(d.get("machine_model") or d.get("model") or "Centauri Carbon 2").strip()
+    host_name = str(d.get("host_name") or d.get("hostname") or "Centauri Carbon 2").strip()
+    proof = []
+    if serial:
+        proof.append(f"serial {serial}")
+    if model:
+        proof.append(model)
+    if d.get("raw"):
+        proof.append("method 7000 response")
+    row_notes = list(notes or [])
+    row_notes.append("Verified by Centauri UDP discovery method 7000")
+    return {
+        "host": host,
+        "open_ports": [1883, 80, 8080],
+        "http_title": model or host_name or "Centauri Carbon 2",
+        "likely_printer": True,
+        "verified_printer": True,
+        "verified_by": "udp_method_7000",
+        "verification_proof": proof,
+        "notes": row_notes,
+        "portal_url": f"http://{host}/",
+        "camera_url": f"http://{host}:8080/",
+        "serial": serial,
+        "host_name": host_name or "Centauri Carbon 2",
+        "machine_model": model or "Centauri Carbon 2",
+        "token_status": d.get("token_status"),
+        "lan_status": d.get("lan_status"),
+        "raw": d.get("raw"),
+    }
+
+
 async def _discover_cc2(subnet_or_host: str, timeout: float = 3.5) -> list[dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
     for target in _discovery_targets(subnet_or_host):
@@ -630,27 +673,43 @@ async def _discover_cc2(subnet_or_host: str, timeout: float = 3.5) -> list[dict[
             rows = await asyncio.to_thread(discover, timeout, target)
             for p in rows:
                 d = p.to_dict()
-                host = d.get("ip")
-                if not host:
-                    continue
-                found[host] = {
-                    "host": host,
-                    "open_ports": [1883, 80, 8080],
-                    "http_title": d.get("machine_model") or d.get("host_name") or "Centauri Carbon 2",
-                    "likely_printer": True,
-                    "notes": ["UDP discovery method 7000"],
-                    "portal_url": f"http://{host}/",
-                    "camera_url": f"http://{host}:8080/",
-                    "serial": d.get("serial") or "",
-                    "host_name": d.get("host_name") or "Centauri Carbon 2",
-                    "machine_model": d.get("machine_model") or "Centauri Carbon 2",
-                    "token_status": d.get("token_status"),
-                    "lan_status": d.get("lan_status"),
-                    "raw": d.get("raw"),
-                }
+                row = _cc2_discovery_row(d, notes=[f"UDP target {target}"])
+                if row:
+                    found[row["host"]] = row
         except Exception as exc:
             log("warn", f"UDP discovery failed for target {target}: {exc}", "scanner")
     return list(found.values())
+
+
+def _generic_candidate_is_worth_verifying(candidate: dict[str, Any]) -> bool:
+    ports = set(int(p) for p in (candidate.get("open_ports") or []) if str(p).isdigit())
+    text = " ".join([
+        str(candidate.get("http_title") or ""),
+        " ".join(str(n) for n in (candidate.get("notes") or [])),
+    ]).lower()
+    if any(word in text for word in ["elegoo", "centauri"]):
+        return True
+    # CC2 local control/webcam stack typically exposes MQTT plus web/camera.
+    return 1883 in ports and bool(ports.intersection({80, 8080}))
+
+
+async def _direct_verify_cc2(host: str, timeout: float = 1.2) -> dict[str, Any] | None:
+    try:
+        rows = await asyncio.to_thread(discover, timeout, host)
+    except Exception as exc:
+        log("debug", f"Directed CC2 verify failed for {host}: {exc}", "scanner")
+        return None
+    for p in rows:
+        d = p.to_dict()
+        # Some devices answer from their own source IP even when the target is a
+        # directed unicast. Accept either the requested host or the reported IP.
+        reported = d.get("ip") or host
+        if reported and str(reported) not in {str(host), "0.0.0.0"}:
+            continue
+        row = _cc2_discovery_row(d, host=host, notes=["Directed verification after TCP scan"])
+        if row:
+            return row
+    return None
 
 
 @app.get("/api/discover")
@@ -670,18 +729,44 @@ async def api_scan(req: ScanRequest):
     except Exception as exc:
         log("error", f"Scan failed: {exc}", "scanner")
         raise HTTPException(status_code=400, detail=str(exc))
-    merged: dict[str, dict[str, Any]] = {c["host"]: c for c in generic_found if c.get("host")}
-    for c in udp_found:
+
+    verified: dict[str, dict[str, Any]] = {c["host"]: c for c in udp_found if c.get("host")}
+    rejected: list[dict[str, Any]] = []
+
+    # Generic TCP/HTTP scan results are now treated as hints only. They must pass
+    # a directed CC2 method-7000 verification before the UI offers Pair/Save.
+    verify_tasks: list[tuple[dict[str, Any], asyncio.Task]] = []
+    for c in generic_found:
         host = c.get("host")
-        if not host:
+        if not host or host in verified:
             continue
-        if host in merged:
-            merged[host].update({k: v for k, v in c.items() if v not in (None, "", [])})
-            merged[host]["likely_printer"] = True
+        if _generic_candidate_is_worth_verifying(c):
+            verify_tasks.append((c, asyncio.create_task(_direct_verify_cc2(host))))
         else:
-            merged[host] = c
-    candidates = sorted(merged.values(), key=lambda c: (not c.get("likely_printer", False), c.get("host", "")))
-    return {"ok": True, "subnet": subnet, "ports": ports, "candidates": candidates}
+            c["reject_reason"] = "No Centauri discovery response/proof; generic network device hidden."
+            rejected.append(c)
+
+    for original, task in verify_tasks:
+        row = await task
+        if row:
+            # Preserve the actual TCP port list from the generic scan when present.
+            if original.get("open_ports"):
+                row["open_ports"] = original.get("open_ports")
+            verified[row["host"]] = row
+        else:
+            original["reject_reason"] = "TCP ports looked possible, but directed Centauri discovery did not verify it."
+            rejected.append(original)
+
+    candidates = sorted(verified.values(), key=lambda c: c.get("host", ""))
+    log("info", f"Scan complete: {len(candidates)} verified printer(s), {len(rejected)} hidden non-printer candidate(s)", "scanner")
+    return {
+        "ok": True,
+        "subnet": subnet,
+        "ports": ports,
+        "candidates": candidates,
+        "verified_count": len(candidates),
+        "hidden_count": len(rejected),
+    }
 
 
 @app.get("/api/printers")
@@ -744,7 +829,7 @@ async def api_update_printer(printer_id: str, patch: PrinterSettingsRequest):
         data[key] = value
     cfg = save_config(cfg)
     runtime.restart(printer_id, printer_dict_to_config(printer_id, cfg["printers"][printer_id]))
-    return {"ok": True, "printer": public_printer_dict(printer_dict_to_config(printer_id, cfg["printers"][printer_id]))}
+    return {"ok": True, "config": cfg, "printer": public_printer_dict(printer_dict_to_config(printer_id, cfg["printers"][printer_id]))}
 
 
 @app.delete("/api/printers/{printer_id}")
@@ -758,8 +843,20 @@ async def api_delete_printer(printer_id: str):
         cfg["app"]["default_printer"] = next(iter(cfg.get("printers", {}).keys()), None)
     if not cfg.get("printers"):
         cfg.setdefault("app", {})["setup_complete"] = False
-    save_config(cfg)
-    return {"ok": True}
+    cfg = save_config(cfg)
+    return {"ok": True, "config": cfg}
+
+
+@app.post("/api/printers/{printer_id}/default")
+async def api_set_default_printer(printer_id: str):
+    cfg = load_config()
+    if printer_id not in (cfg.get("printers") or {}):
+        raise HTTPException(404, "Printer not configured")
+    cfg.setdefault("app", {})["default_printer"] = printer_id
+    cfg.setdefault("app", {})["setup_complete"] = True
+    cfg = save_config(cfg)
+    log("info", f"Default printer set to {printer_id}", "settings")
+    return {"ok": True, "config": cfg, "printer_id": printer_id}
 
 
 def _maybe_attach_vision(printer_id: str, printer: dict[str, Any] | None, status: dict[str, Any], cfg: dict[str, Any], ai_source: str = "request", force: bool = False) -> dict[str, Any]:

@@ -39,7 +39,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.2.6.zip
+unzip cc2-dash-lite-1.2.7.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -405,3 +405,10 @@ The top menu now has a configurable **File Manager menu option** toggle under **
   - `GET /api/ai/feedback/stats`
 
 Feedback is now a proper dataset builder, but it still does **not** auto-train or auto-tune live scoring. That is intentional for safety: the dashboard should collect labeled examples first, then later use that dataset for calibration or fine-tuning after review.
+
+
+## v1.2.7 notes
+
+- Tightened printer discovery so the scan UI only shows verified Centauri Carbon candidates from UDP method-7000 discovery.
+- Generic TCP/HTTP scan hits are now treated as hidden hints instead of pairable devices, preventing routers/Tasmota/other LAN web UIs from appearing as printers.
+- Added a Settings → Printer Manager section with verified scan, manual add, edit/save, make default, remove, enabled/commands/dangerous toggles, and per-printer connection settings.

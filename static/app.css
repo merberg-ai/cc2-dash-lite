@@ -432,3 +432,52 @@ hr { width:100%; border:0; border-top:1px solid var(--cc2-border); margin:0; }
   border-color:color-mix(in srgb, var(--cc2-primary) 38%, var(--cc2-border));
   background:color-mix(in srgb, var(--cc2-card-soft) 86%, var(--cc2-primary));
 }
+
+
+/* v1.2.7: printer manager + stricter discovery UI */
+.printer-manager-grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:.85rem;
+  align-items:start;
+}
+.printer-manager-panel {
+  background:var(--cc2-card-soft);
+  border:1px solid var(--cc2-border);
+  border-radius:.9rem;
+  padding:.85rem;
+}
+.printer-manager-panel h3,
+.section-subtitle {
+  margin:.1rem 0 .35rem;
+  font-family:var(--font-heading);
+}
+.printer-config-list { margin-top:.55rem; }
+.printer-config-card {
+  display:flex;
+  flex-direction:column;
+  gap:.75rem;
+  background:var(--cc2-card-soft);
+  border:1px solid var(--cc2-border);
+  border-radius:.9rem;
+  padding:.85rem;
+}
+.printer-config-head,
+.printer-toggle-row,
+.printer-action-row {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:.65rem;
+  flex-wrap:wrap;
+}
+.printer-config-head strong { display:block; }
+.printer-config-head small { color:var(--cc2-muted); }
+.printer-toggle-row { justify-content:flex-start; color:var(--cc2-muted); font-size:.86rem; }
+.printer-action-row { justify-content:flex-end; }
+.verified-printer-result { border-color:color-mix(in srgb, var(--cc2-success) 32%, var(--cc2-border)); }
+@media (max-width: 720px) {
+  .printer-manager-grid { grid-template-columns:1fr; }
+  .printer-action-row { display:grid; grid-template-columns:1fr; }
+  .printer-action-row .button { width:100%; }
+}

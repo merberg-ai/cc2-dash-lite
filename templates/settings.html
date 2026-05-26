@@ -194,9 +194,38 @@
     <button id="saveActionsButton" class="button primary full"><span class="button-label">Save Buttons</span></button>
   </article>
 
-  <article class="card">
-    <h2>Printers</h2>
-    <div id="printerSettings" class="settings-list"></div>
+  <article class="card printer-manager-card">
+    <h2>Printer Manager</h2>
+    <p class="muted">Scan for verified Centauri Carbon printers, add one manually, remove old entries, or tune per-printer connection/command settings.</p>
+
+    <div class="printer-manager-grid">
+      <section class="printer-manager-panel">
+        <h3>Scan / discover</h3>
+        <p class="muted">Only verified Centauri discovery responses are shown here. Routers and other web devices are hidden.</p>
+        <label class="field-label" for="managerScanSubnet">Subnet or host</label>
+        <input id="managerScanSubnet" class="input" value="{{ default_subnet }}" placeholder="192.168.1.0/24 or 192.168.1.x" />
+        <button id="managerScanButton" class="button primary full"><span class="button-label">Scan / Discover Printers</span></button>
+        <div id="managerScanStatus" class="scan-status hidden"><span class="spinner"></span><span>Scanning...</span></div>
+        <div id="managerScanResults" class="result-list"></div>
+      </section>
+
+      <section class="printer-manager-panel">
+        <h3>Manual add</h3>
+        <p class="muted">Use this if broadcast discovery is blocked but you know the printer IP, serial, and PIN.</p>
+        <label class="field-label" for="managerManualName">Display name</label>
+        <input id="managerManualName" class="input" value="Centauri Carbon 2" />
+        <label class="field-label" for="managerManualHost">Printer IP / host</label>
+        <input id="managerManualHost" class="input" placeholder="192.168.1.50" />
+        <label class="field-label" for="managerManualSerial">Serial number</label>
+        <input id="managerManualSerial" class="input" placeholder="Printer serial / SN" />
+        <label class="field-label" for="managerManualPin">Printer PIN / access code</label>
+        <input id="managerManualPin" class="input" type="password" inputmode="numeric" value="123456" />
+        <button id="managerManualAddButton" class="button primary full"><span class="button-label">Add / Save Printer</span></button>
+      </section>
+    </div>
+
+    <h3 class="section-subtitle">Configured printers</h3>
+    <div id="printerSettings" class="settings-list printer-config-list"></div>
   </article>
 
   <article class="card">

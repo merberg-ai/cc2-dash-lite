@@ -32,7 +32,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite.zip
+unzip cc2-dash-lite-1.0.0.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -227,6 +227,24 @@ Timelapse Videos   -> timelapse/history records, download/export/delete
 This uses the same CC2/Elegoo MQTT command family that the stock portal code uses. Some firmware builds return slightly different JSON shapes, so the frontend tries several known list keys before giving up.
 
 Safety note: `Start Print`, `Delete File`, and `Delete History/Timelapse` are blocked by the backend unless that printer has dangerous commands enabled. That is intentional because phone thumbs are tiny chaos engines.
+
+
+## v1.0.0 stable checkpoint
+
+This release marks the current working cc2-dash-lite state as the stable **1.0.0** rollback point before further feature work.
+
+Included in this checkpoint:
+
+- First-run setup wizard with scan, PIN/access-code pairing, and saved printer configuration
+- Bundled stock Elegoo portal and local MQTT-over-WebSocket bridge
+- Mobile-first OctoEverywhere-style dashboard shell
+- Theme/font system
+- Configurable dashboard cards and quick action buttons
+- Configurable top menu features, including the File Manager visibility toggle
+- Files route and backend endpoints retained for later refinement, with the menu hidden when desired
+- Raspberry Pi/Linux install, uninstall, venv, and optional systemd service scripts
+
+Treat this as the known-good baseline before changing the file/timelapse system or adding heavier dashboard controls.
 
 
 ## v0.3.1 notes

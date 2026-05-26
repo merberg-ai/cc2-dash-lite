@@ -22,6 +22,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 - Timelapse/history load/export/download/delete controls where firmware allows it
 - Configurable dashboard card visibility/order
 - Configurable quick-action button visibility/order/confirmation
+- Settings → Printer Manager for scan/manual add/edit/remove/default printer control
 - JSON-based theme system
 - Configurable font packs using local/system font stacks
 - Filterable persisted Logs page for system, command, Portal AI, and vision events
@@ -39,7 +40,7 @@ This is meant to be a clean LAN dashboard layer, not a full replacement for the 
 ## Install
 
 ```bash
-unzip cc2-dash-lite-1.2.7.zip
+unzip cc2-dash-lite-1.2.8.zip
 cd cc2-dash-lite
 ./install.sh
 ./run.sh
@@ -81,18 +82,34 @@ Remove service plus `.venv` and `data/`:
 
 ## First-run setup
 
-The setup wizard now saves the pieces the CC2 actually needs:
+First-run setup is now a centered card-by-card wizard instead of one giant setup page. The flow is:
 
 ```text
-Printer IP
+1. Welcome + Scan for verified Centauri printers
+2. Optional manual add
+3. UI setup: theme and font choices
+4. Network access allowlist
+5. Portal AI / failure detection / Ollama vision settings
+6. Finish and open dashboard
+```
+
+The scanner only shows verified Centauri printer responses. Routers, Tasmota plugs, phones, and other random LAN devices are hidden instead of being offered as fake printer candidates.
+
+The setup wizard saves the pieces the CC2 actually needs:
+
+```text
+Printer IP / host
 Printer serial / SN
 Printer PIN / access code
 MQTT port, default 1883
+Default printer selection
 ```
 
-Discovery usually fills the serial automatically. If the fallback scanner finds only an IP, the setup screen asks you to type the serial manually.
+Discovery usually fills the serial automatically. If discovery is blocked, use the manual-add card with the printer IP, serial, and PIN.
 
-If you already tested the previous cc2-dash-lite build and it saved a printer without serial/PIN, this build will route you back through setup instead of pretending everything is paired. That is intentional. No more “trust me bro” pairing.
+If you already tested a previous cc2-dash-lite build and it saved a printer without serial/PIN, this build will route you back through setup instead of pretending everything is paired. That is intentional. No more “trust me bro” pairing.
+
+After setup, use **Settings → Printer Manager** to scan again, add a printer manually, edit a printer, remove old entries, enable/disable command permissions, and choose the default printer.
 
 ## Stock Elegoo portal
 

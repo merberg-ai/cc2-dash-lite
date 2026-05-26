@@ -22,7 +22,7 @@ Usage:
   ./install.sh [--service] [--port=8088] [--no-system-deps]
 
 Options:
-  --service          Install and start a systemd service.
+  --service         Install and start a systemd service.
   --port=PORT       Port for the service unit. Default: 8088.
   --no-system-deps  Skip apt install for python3-venv/python3-pip.
 HELP
@@ -31,7 +31,7 @@ HELP
   esac
 done
 
-say() { printf '\033[1;36m[cc2]\033[0m %s\n' "$*"; }
+say() { printf '\033[1;36m[cc2-dash]\033[0m %s\n' "$*"; }
 ok() { printf '\033[1;32m[ok]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[warn]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[fail]\033[0m %s\n' "$*"; exit 1; }

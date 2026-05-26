@@ -295,7 +295,11 @@
         const pin = $('.scan-pin', item)?.value?.trim() || '123456';
         const serialValue = serial || $('.scan-serial', item)?.value?.trim() || c.host;
         setButtonBusy(e.currentTarget, true, 'Pairing...');
-        try { await savePrinter(c.host, c.host_name || c.machine_model || 'Centauri Carbon 2', c.portal_url, c.camera_url, serialValue, pin, { redirect }); }
+        try {
+          await savePrinter(c.host, c.host_name || c.machine_model || 'Centauri Carbon 2', c.portal_url, c.camera_url, serialValue, pin, { redirect });
+          if (typeof options.afterSave === 'function') options.afterSave(c);
+          setButtonBusy(e.currentTarget, false);
+        }
         catch (err) { toast(err.message, 'error'); setButtonBusy(e.currentTarget, false); }
       });
       box.appendChild(item);
@@ -303,6 +307,101 @@
   }
 
   function initSetup() {
+    let setupIndex = 0;
+    const setupCards = $$('[data-setup-card]');
+    const stepLabel = $('#setupStepLabel');
+    const stepPill = $('#setupStepPill');
+    const progressBar = $('#setupProgressBar');
+
+    function setupPrinterCount() {
+      return Object.keys(cfg?.printers || {}).length;
+    }
+
+    function setupSummaryHtml() {
+      const printers = Object.entries(cfg?.printers || {});
+      const themeId = cfg?.app?.theme || 'default';
+      const ai = cfg?.portal_ai || {};
+      const access = [
+        ...((cfg?.network?.allowed_subnets || []).map(x => `subnet ${x}`)),
+        ...((cfg?.network?.allowed_hosts || []).map(x => `host ${x}`)),
+      ];
+      const printerRows = printers.length
+        ? printers.map(([id, p]) => `<div class="result-item"><strong>${esc(p.name || id)}</strong><span>${esc(p.host || '')} · SN ${esc(p.serial || 'not set')} · ${id === cfg?.app?.default_printer ? 'default' : esc(id)}</span></div>`).join('')
+        : '<div class="result-item"><strong>No printer saved yet</strong><span>Go back to Scan or Manual Add before finishing.</span></div>';
+      return `
+        <div class="setup-summary-grid">
+          <div><strong>Printer(s)</strong><span>${printers.length}</span></div>
+          <div><strong>Theme</strong><span>${esc(themeId)}</span></div>
+          <div><strong>Portal AI</strong><span>${ai.enabled ? 'enabled' : 'disabled'}</span></div>
+          <div><strong>Vision</strong><span>${ai.vision_ai_enabled ? 'Ollama enabled' : 'telemetry/local only'}</span></div>
+        </div>
+        <div class="mini-note">Access: ${esc(access.join(' · ') || 'localhost only')}</div>
+        <div class="result-list">${printerRows}</div>
+      `;
+    }
+
+    function setupGo(index) {
+      if (!setupCards.length) return;
+      setupIndex = Math.max(0, Math.min(setupCards.length - 1, index));
+      setupCards.forEach((card, i) => card.classList.toggle('active', i === setupIndex));
+      const title = setupCards[setupIndex]?.dataset.stepTitle || '';
+      if (stepLabel) stepLabel.textContent = title;
+      if (stepPill) stepPill.textContent = `Step ${setupIndex + 1} / ${setupCards.length}`;
+      if (progressBar) progressBar.style.width = `${((setupIndex + 1) / setupCards.length) * 100}%`;
+      const summary = $('#setupSummary');
+      if (summary) summary.innerHTML = setupSummaryHtml();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    async function saveSetupConfig(button, label = 'Saving...') {
+      setButtonBusy(button, true, label);
+      try {
+        const data = await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) });
+        cfg = data.config || cfg;
+        refreshConfigEditor();
+        return data;
+      } finally {
+        setButtonBusy(button, false);
+      }
+    }
+
+    function applySetupAppearanceFromInputs() {
+      cfg.app = cfg.app || {};
+      cfg.appearance = cfg.appearance || {};
+      cfg.appearance.fonts = cfg.appearance.fonts || {};
+      cfg.app.theme = $('#setupTheme')?.value || cfg.app.theme;
+      $$('.setup-card .font-select').forEach(sel => cfg.appearance.fonts[sel.dataset.fontRole] = sel.value);
+    }
+
+    function applySetupAccessFromInputs() {
+      cfg.network = cfg.network || {};
+      cfg.network.allowed_subnets = ($('#setupAllowedSubnets')?.value || '').split('\n').map(x => x.trim()).filter(Boolean);
+      cfg.network.allowed_hosts = ($('#setupAllowedHosts')?.value || '').split('\n').map(x => x.trim()).filter(Boolean);
+    }
+
+    function applySetupAiFromInputs() {
+      cfg.portal_ai = cfg.portal_ai || {};
+      cfg.portal_ai.enabled = !!$('#setupPortalAIEnabled')?.checked;
+      cfg.portal_ai.background_monitor_enabled = !!$('#setupAIBackgroundEnabled')?.checked;
+      cfg.portal_ai.telemetry_rules_enabled = !!$('#setupAITelemetryRules')?.checked;
+      cfg.portal_ai.vision_heuristics_enabled = !!$('#setupAIHeuristics')?.checked;
+      cfg.portal_ai.vision_ai_enabled = !!$('#setupAIVisionEnabled')?.checked;
+      cfg.portal_ai.ollama_base_url = $('#aiOllamaBaseUrl')?.value?.trim() || cfg.portal_ai.ollama_base_url || 'http://localhost:11434';
+      cfg.portal_ai.ollama_vision_model = selectedOllamaModel();
+      cfg.portal_ai.vision_check_interval_seconds = Number($('#setupVisionInterval')?.value || cfg.portal_ai.vision_check_interval_seconds || 120);
+      cfg.portal_ai.vision_required_bad_checks = Number($('#setupVisionBadChecks')?.value || cfg.portal_ai.vision_required_bad_checks || 2);
+    }
+
+    loadFreshConfig().then(data => {
+      populateFontSelects(data.font_stacks || []);
+      populateOllamaModelSelect([], cfg?.portal_ai?.ollama_vision_model || 'llava');
+      refreshConfigEditor();
+      setupGo(0);
+    }).catch(err => toast(err.message, 'error'));
+
+    $$('.setup-next').forEach(btn => btn.addEventListener('click', () => setupGo(setupIndex + 1)));
+    $$('.setup-back').forEach(btn => btn.addEventListener('click', () => setupGo(setupIndex - 1)));
+
     const scanButton = $('#scanButton');
     if (scanButton) scanButton.addEventListener('click', async () => {
       const subnet = $('#scanSubnet').value.trim();
@@ -311,7 +410,7 @@
       setButtonBusy(scanButton, true, 'Scanning...');
       try {
         const data = await api('/api/scan', { method: 'POST', body: JSON.stringify({ subnet }) });
-        renderScanResults(data.candidates || []);
+        renderScanResults(data.candidates || [], 'scanResults', { redirect:false, afterSave: () => setupGo(1) });
         const hidden = Number(data.hidden_count || 0);
         toast(`Scan complete: ${(data.candidates || []).length} verified printer(s)${hidden ? `, ${hidden} non-printer device(s) hidden` : ''}`, 'success');
       } catch (err) {
@@ -330,17 +429,93 @@
       const pin = $('#manualPin').value.trim() || '123456';
       if (!host) return toast('Enter a printer IP first.', 'warn');
       setButtonBusy(manual, true, 'Pairing...');
-      try { await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin); }
-      catch (err) { toast(err.message, 'error'); setButtonBusy(manual, false); }
+      try {
+        await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });
+        toast('Manual printer saved.', 'success');
+        setupGo(2);
+      }
+      catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(manual, false); }
     });
 
-    const themeBtn = $('#saveSetupTheme');
-    if (themeBtn) themeBtn.addEventListener('click', async () => {
-      cfg.app.theme = $('#setupTheme').value;
-      setButtonBusy(themeBtn, true, 'Saving...');
-      try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Theme saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
+    const saveUi = $('#saveSetupUiButton');
+    if (saveUi) saveUi.addEventListener('click', async () => {
+      applySetupAppearanceFromInputs();
+      try { await saveSetupConfig(saveUi, 'Saving UI...'); toast('UI settings saved.', 'success'); setupGo(3); }
       catch (err) { toast(err.message, 'error'); }
-      finally { setButtonBusy(themeBtn, false); }
+    });
+
+    const saveAccess = $('#saveSetupAccessButton');
+    if (saveAccess) saveAccess.addEventListener('click', async () => {
+      applySetupAccessFromInputs();
+      try { await saveSetupConfig(saveAccess, 'Saving access...'); toast('Access settings saved.', 'success'); setupGo(4); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+
+    const refreshOllamaModels = $('#refreshOllamaModelsButton');
+    if (refreshOllamaModels) refreshOllamaModels.addEventListener('click', async () => {
+      try {
+        const data = await loadOllamaModels(refreshOllamaModels);
+        const models = (data.models || []).slice(0, 8).join(', ') || 'No models returned';
+        toast(`Ollama models loaded: ${models}`, 'success', 8000);
+      } catch (err) { toast(err.message, 'error', 9000); }
+    });
+
+    const testOllama = $('#testOllamaButton');
+    if (testOllama) testOllama.addEventListener('click', async () => {
+      setButtonBusy(testOllama, true, 'Testing...');
+      try {
+        const data = await loadOllamaModels();
+        const model = selectedOllamaModel();
+        const present = (data.models || []).includes(model);
+        setInlineStatus('ollamaModelStatus', present ? `Ready: ${model} is installed on ${data.base_url}.` : `Ollama is reachable, but ${model} is not in the installed list.`, present ? 'good' : 'warn');
+        toast(present ? `Ollama reachable and ${model} is installed.` : `Ollama reachable, but selected model was not listed.`, present ? 'success' : 'warn', 8000);
+      } catch (err) { toast(err.message, 'error', 9000); }
+      finally { setButtonBusy(testOllama, false); }
+    });
+
+    const pullOllamaModel = $('#pullOllamaModelButton');
+    if (pullOllamaModel) pullOllamaModel.addEventListener('click', async () => {
+      const input = $('#aiOllamaPullModel');
+      const model = input?.value?.trim() || selectedOllamaModel();
+      if (!model) return toast('Enter a model name to pull.', 'warn');
+      if (!confirm(`Pull Ollama model "${model}"? Large models can take a while.`)) return;
+      setButtonBusy(pullOllamaModel, true, 'Pulling...');
+      setInlineStatus('ollamaModelStatus', `Pulling ${model}...`, '');
+      try {
+        const data = await api('/api/vision/pull', { method:'POST', body:JSON.stringify({ model, base_url: ollamaBaseUrlFromSettings() }) });
+        populateOllamaModelSelect(data.models || [model], model);
+        if (input) input.value = '';
+        setInlineStatus('ollamaModelStatus', `Pulled ${model}.`, 'good');
+        toast(`Pulled ${model}`, 'success', 9000);
+      } catch (err) {
+        setInlineStatus('ollamaModelStatus', err.message, 'bad');
+        toast(err.message, 'error', 12000);
+      } finally { setButtonBusy(pullOllamaModel, false); }
+    });
+
+    const saveAi = $('#saveSetupAiButton');
+    if (saveAi) saveAi.addEventListener('click', async () => {
+      applySetupAiFromInputs();
+      try { await saveSetupConfig(saveAi, 'Saving AI...'); toast('AI monitoring settings saved.', 'success'); setupGo(5); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+
+    const finish = $('#finishSetupButton');
+    if (finish) finish.addEventListener('click', async () => {
+      try {
+        await loadFreshConfig();
+        if (!setupPrinterCount()) {
+          toast('Add or scan at least one printer before finishing setup.', 'warn', 8000);
+          setupGo(0);
+          return;
+        }
+        setButtonBusy(finish, true, 'Launching...');
+        await api('/api/setup/finish', { method:'POST' });
+        toast('Setup complete. Opening dashboard...', 'success');
+        setTimeout(() => location.href = '/', 450);
+      } catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(finish, false); }
     });
   }
 

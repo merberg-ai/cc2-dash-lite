@@ -242,3 +242,8 @@ Safety note: `Start Print`, `Delete File`, and `Delete History/Timelapse` are bl
 - Backend filters Print History rows for timelapse records using TimeLapseVideoStatus 1/2 or video URL/size/duration markers.
 - Added a fallback attempt for task-detail lookup using method 1037 when history rows do not include video metadata directly.
 - UI now shows size, creation time, duration, generated/export-needed status, and download/export actions.
+
+
+## v0.3.3 note
+
+The top menu now has a configurable **File Manager menu option** toggle under **Settings → Menu / Features**. Turn it off to hide the Files link while the file/timelapse implementation is still being refined. The underlying `/files` route and backend endpoints are left in place for testing and later fixes.

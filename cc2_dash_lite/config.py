@@ -97,6 +97,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         },
     },
     "printers": {},
+    "features": {
+        "file_manager_enabled": True,
+    },
     "dashboard": {
         "refresh_interval_seconds": 3,
         "camera_autoload": True,

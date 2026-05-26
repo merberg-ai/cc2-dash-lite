@@ -320,6 +320,16 @@
       finally { setButtonBusy(saveLayout, false); }
     });
 
+    const saveMenu = $('#saveMenuButton');
+    if (saveMenu) saveMenu.addEventListener('click', async () => {
+      cfg.features = cfg.features || {};
+      cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
+      setButtonBusy(saveMenu, true, 'Saving...');
+      try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Menu settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
+      catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(saveMenu, false); }
+    });
+
     const saveActions = $('#saveActionsButton');
     if (saveActions) saveActions.addEventListener('click', async () => {
       $$('#actionSettings [data-action-id]').forEach(row => {

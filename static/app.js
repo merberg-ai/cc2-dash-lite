@@ -392,6 +392,14 @@
     return payload?.result?.result ?? payload?.result ?? payload;
   }
 
+  function printerResultError(payload) {
+    const root = unwrapCommand(payload);
+    const code = root?.error_code ?? root?.ErrorCode;
+    if (code === undefined || code === null || Number(code) === 0) return '';
+    const msg = root?.error_msg || root?.ErrorMsg || root?.message || root?.Message || '';
+    return `Printer returned error_code ${code}${msg ? ': ' + msg : ''}`;
+  }
+
   function arrayFromAny(payload, candidateKeys) {
     const root = unwrapCommand(payload);
     for (const key of candidateKeys) {
@@ -477,6 +485,13 @@
     setButtonBusy(btn, true, 'Loading...');
     try {
       const data = await printerApi(`/files?storage_media=${encodeURIComponent(storage)}&path=${encodeURIComponent(path)}&page_size=100`);
+      const printerErr = printerResultError(data);
+      if (printerErr) {
+        const hint = storage === 'u-disk' ? 'USB storage may be empty, missing, or not mounted.' : 'The printer rejected the file-list request.';
+        renderEmpty(box, 'File load returned a printer error.', `${printerErr}. ${hint}`);
+        toast(printerErr, 'warn', 7000);
+        return;
+      }
       const files = arrayFromAny(data, ['file_list', 'files', 'list', 'data', 'items', 'FileList']);
       if (!files.length) {
         renderEmpty(box, 'No G-code files returned.', 'Try Local/USB, a different path, or open the stock portal if the firmware returns a weird shape.');
@@ -575,13 +590,16 @@
     setBoxLoading(box, loading, true, 'Loading timelapse records...');
     setButtonBusy(btn, true, 'Loading...');
     try {
-      const data = await printerApi('/timelapse');
-      let items = arrayFromAny(data, ['time_lapse_video_list', 'TimeLapseVideoList', 'history_task_list', 'task_list', 'tasks', 'data', 'items', 'list']);
-      if (!items.length) {
-        // Some firmware returns timelapse info through history instead of the timelapse method.
-        const hist = await printerApi('/history');
-        items = arrayFromAny(hist, ['history_task_list', 'task_list', 'tasks', 'data', 'items', 'list']);
+      // CC2 firmware/stock portal exposes timelapse records through print history.
+      // Method 1051 is export-only on some firmware and throws error_code 1003 with no token.
+      const data = await printerApi('/history');
+      const printerErr = printerResultError(data);
+      if (printerErr) {
+        renderEmpty(box, 'Timelapse/history load returned a printer error.', printerErr);
+        toast(printerErr, 'warn', 7000);
+        return;
       }
+      let items = arrayFromAny(data, ['history_task_list', 'task_list', 'tasks', 'data', 'items', 'list', 'TimeLapseVideoList', 'time_lapse_video_list']);
       if (!items.length) {
         renderEmpty(box, 'No timelapse/video records returned.', 'The printer may not have any exported videos yet, or this firmware may hide them until a completed task exists.');
         return;

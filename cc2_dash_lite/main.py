@@ -672,7 +672,7 @@ async def api_legacy_status(printer_id: str):
     return runtime.snapshot(printer_id)
 
 
-def _send_command(printer_id: str, method: int, params: dict[str, Any] | None = None, wait: bool = True, timeout: float = 10.0) -> dict[str, Any]:
+def _send_command(printer_id: str, method: int, params: dict[str, Any] | None = None, wait: bool = True, timeout: float = 10.0, raise_on_result_error: bool = True) -> dict[str, Any]:
     cfg = load_config()
     pdata = (cfg.get("printers") or {}).get(printer_id)
     if not pdata:
@@ -687,7 +687,7 @@ def _send_command(printer_id: str, method: int, params: dict[str, Any] | None = 
     if not client:
         raise HTTPException(409, "Printer client is not running; check host, serial, and PIN/access code.")
     try:
-        result = client.send_request(method, params or {}, wait=wait, timeout=timeout)
+        result = client.send_request(method, params or {}, wait=wait, timeout=timeout, raise_on_error_code=raise_on_result_error)
         return {"ok": True, "result": result}
     except CommandError as exc:
         raise HTTPException(500, str(exc)) from exc
@@ -745,7 +745,7 @@ async def api_action(action_id: str, req: ActionRequest | None = None):
 
 @app.get("/api/printers/{printer_id}/files")
 async def api_files(printer_id: str, path: str = "/", storage_media: str = "local", page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200), offset: Optional[int] = None, limit: Optional[int] = None):
-    return await asyncio.to_thread(_send_command, printer_id, GET_FILE_LIST, file_list_params(path, storage_media, page, page_size, offset, limit), True, 15.0)
+    return await asyncio.to_thread(_send_command, printer_id, GET_FILE_LIST, file_list_params(path, storage_media, page, page_size, offset, limit), True, 15.0, False)
 
 
 @app.get("/api/printers/{printer_id}/files/detail")
@@ -787,12 +787,15 @@ async def api_canvas(printer_id: str):
 
 @app.get("/api/printers/{printer_id}/history")
 async def api_history(printer_id: str):
-    return await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0)
+    return await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
 
 
 @app.get("/api/printers/{printer_id}/timelapse")
 async def api_timelapse(printer_id: str):
-    return await asyncio.to_thread(_send_command, printer_id, GET_TIME_LAPSE_VIDEO_LIST, {}, True, 20.0)
+    # The stock Elegoo portal lists timelapse/video records through print history.
+    # Method 1051 is used for export/generation and returns error_code 1003 when
+    # called with no URL/task token on current CC2 firmware.
+    return await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
 
 
 @app.post("/api/printers/{printer_id}/timelapse/export")

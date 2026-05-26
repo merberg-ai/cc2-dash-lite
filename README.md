@@ -227,3 +227,10 @@ Timelapse Videos   -> timelapse/history records, download/export/delete
 This uses the same CC2/Elegoo MQTT command family that the stock portal code uses. Some firmware builds return slightly different JSON shapes, so the frontend tries several known list keys before giving up.
 
 Safety note: `Start Print`, `Delete File`, and `Delete History/Timelapse` are blocked by the backend unless that printer has dangerous commands enabled. That is intentional because phone thumbs are tiny chaos engines.
+
+
+## v0.3.1 notes
+
+- Files/timelapse read endpoints no longer convert printer `error_code` responses into HTTP 500s.
+- Timelapse listing now loads through print history like the stock Elegoo portal; method 1051 is kept for export only.
+- USB file-list errors now show a friendly message instead of crashing the Files page.

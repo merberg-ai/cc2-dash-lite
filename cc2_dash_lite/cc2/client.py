@@ -21,10 +21,11 @@ class CommandError(RuntimeError):
 
 
 class PendingRequest:
-    def __init__(self) -> None:
+    def __init__(self, raise_on_error_code: bool = True) -> None:
         self.event = threading.Event()
         self.result: Optional[Dict[str, Any]] = None
         self.error: Optional[str] = None
+        self.raise_on_error_code = raise_on_error_code
 
 
 def make_client_id() -> str:
@@ -256,7 +257,11 @@ class Cc2Client:
             error = payload.get("error")
             if isinstance(error, dict):
                 pending.error = json.dumps(error)
-            elif isinstance(result, dict) and int(result.get("error_code", 0) or 0) != 0:
+            elif (
+                isinstance(result, dict)
+                and int(result.get("error_code", 0) or 0) != 0
+                and pending.raise_on_error_code
+            ):
                 pending.error = str(result.get("error_msg") or result)
             else:
                 pending.result = result if isinstance(result, dict) else {}
@@ -321,14 +326,14 @@ class Cc2Client:
             self.next_request_id += 1
             return self.next_request_id
 
-    def send_request(self, method: int, params: Optional[Dict[str, Any]] = None, wait: bool = True, timeout: float = 10.0) -> Dict[str, Any]:
+    def send_request(self, method: int, params: Optional[Dict[str, Any]] = None, wait: bool = True, timeout: float = 10.0, raise_on_error_code: bool = True) -> Dict[str, Any]:
         if params is None:
             params = {}
         with self.lock:
             if not self.registered or self.client is None:
                 raise CommandError("Printer is not connected/registered yet")
             request_id = self._next_id()
-            pending = PendingRequest() if wait else None
+            pending = PendingRequest(raise_on_error_code=raise_on_error_code) if wait else None
             if pending:
                 self.pending[request_id] = pending
 

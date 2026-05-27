@@ -15,8 +15,9 @@
         {% else %}
           <img id="cameraStream" class="camera-stream hidden" alt="Printer camera stream" />
         {% endif %}
-        <span class="live-badge"><span class="dot good"></span> LIVE</span>
+        <span id="cameraRelayBadge" class="live-badge"><span id="cameraRelayDot" class="dot warn"></span><span id="cameraRelayText">RELAY</span></span>
       </div>
+      <div id="cameraRelayStatus" class="camera-relay-status">Camera relay warming up...</div>
 
       <div class="progress-shell">
         <div id="progressBar" class="progress-bar" style="width:0%"></div>

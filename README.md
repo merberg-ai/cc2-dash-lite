@@ -20,6 +20,7 @@
 - [First-run setup wizard](#first-run-setup-wizard)
 - [Using the dashboard](#using-the-dashboard)
 - [Printer Manager](#printer-manager)
+- [Camera Relay / stream protection](#camera-relay--stream-protection)
 - [Portal AI and Ollama vision monitoring](#portal-ai-and-ollama-vision-monitoring)
 - [AI feedback / dataset collection](#ai-feedback--dataset-collection)
 - [Logs](#logs)
@@ -79,13 +80,14 @@ It is not trying to be a hardened production control platform. Keep the stock po
 - Configurable quick-action button visibility, ordering, confirmation, and labels.
 - Light toggle, pause/resume/cancel, camera wake, speed preset selector, and Analyze Camera Now quick actions where enabled.
 - Dashboard telemetry display for current printer speed preset when reported by the printer.
-- Camera stream proxy/wake endpoint.
+- Camera Relay fanout endpoint: cc2-dash-lite keeps one upstream printer camera connection and serves dashboard clients, snapshots, watchdog vision, and portal rewrites from the local relay.
 
 ### Stock portal integration
 
 - Bundled stock Elegoo/OctoEverywhere-style portal bundle from the older cc2-dash source.
 - Local MQTT-over-WebSocket bridge for the stock portal.
 - Fullscreen stock portal route and wrapper portal route.
+- Camera URL rewrite shim that attempts to route embedded stock-portal camera views through the local Camera Relay instead of directly opening printer `:8080`.
 
 ### File, timelapse, and filament tools
 
@@ -95,7 +97,36 @@ It is not trying to be a hardened production control platform. Keep the stock po
 - Filament Manager page for stock-style CANVAS/MMS filament tray information.
 - Configurable File Manager and Filament Manager menu visibility.
 
-### Portal AI monitoring
+### Camera Relay / stream protection
+
+The CC2 camera endpoint can become unhappy when multiple browser tabs, the stock portal, the slicer, and background vision checks all connect directly to the printer camera stream. cc2-dash-lite now includes a local **Camera Relay** to reduce that connection pileup.
+
+How it works:
+
+1. The backend opens one upstream MJPEG connection to the printer camera.
+2. The latest JPEG frame is kept in memory.
+3. Dashboard viewers receive a local MJPEG fanout stream from cc2-dash-lite.
+4. Portal AI / Ollama vision grabs the cached latest frame instead of opening its own direct camera connection.
+5. `/api/printers/<id>/camera/snapshot.jpg` returns the latest cached frame.
+6. The embedded stock portal has a camera rewrite shim that tries to redirect direct `http://<printer>:8080/` camera references through the relay.
+
+Useful endpoints:
+
+```text
+GET  /api/printers/<id>/camera/stream
+GET  /api/printers/<id>/camera/snapshot.jpg
+GET  /api/printers/<id>/camera/latest.jpg
+GET  /api/printers/<id>/camera/status
+GET  /api/camera/status
+POST /api/printers/<id>/camera/restart
+```
+
+Settings are available under **Settings → Camera Relay / Stream Protection**. Recommended defaults are relay enabled, start on boot enabled, portal rewrites enabled, and direct fallback disabled. Direct fallback can help debugging, but it can also recreate the original too-many-connections problem.
+
+> [!NOTE]
+> This protects traffic that goes through cc2-dash-lite. If Elegoo Slicer or another external app connects directly to the printer camera, that still consumes its own printer-side connection. The relay reduces cc2-dash-lite's footprint from many camera connections down to one.
+
+## Portal AI monitoring
 
 - Portal AI telemetry failure detection with explainable risk score.
 - Background watchdog monitoring, even when the browser is closed.
@@ -141,14 +172,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.10.zip
+unzip cc2-dash-lite-1.2.11.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.10 cc2-dash-lite
+mv cc2-dash-lite-1.2.11 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

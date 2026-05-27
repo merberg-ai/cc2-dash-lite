@@ -101,6 +101,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "file_manager_enabled": True,
         "filament_manager_enabled": True,
     },
+    "camera_proxy": {
+        "enabled": True,
+        "start_on_boot": True,
+        "max_client_fps": 8,
+        "upstream_connect_timeout_seconds": 5,
+        "upstream_read_timeout_seconds": 20,
+        "stale_frame_seconds": 10,
+        "idle_shutdown_seconds": 120,
+        "fallback_to_direct": False,
+        "rewrite_portal_camera_urls": True,
+        "log_client_connects": False,
+    },
     "portal_ai": {
         "enabled": True,
         "background_monitor_enabled": True,

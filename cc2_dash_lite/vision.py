@@ -15,6 +15,7 @@ try:
 except Exception:  # Pillow is optional at import time; requirements installs it for normal use.
     Image = ImageFilter = ImageStat = None  # type: ignore[assignment]
 
+from .camera_proxy import camera_proxy_config, camera_relays
 from .config import DATA_DIR, PrinterConfig
 from .logger import log
 
@@ -125,7 +126,17 @@ class VisionMonitor:
     def _printer_urls(self, pcfg: PrinterConfig) -> list[str]:
         return [f"http://{pcfg.host}:8080/", f"http://{pcfg.host}:8080/?action=stream"]
 
-    def _grab_frame(self, pcfg: PrinterConfig, timeout: float = 8.0, max_bytes: int = 5_000_000) -> bytes:
+    def _grab_frame(self, pcfg: PrinterConfig, timeout: float = 8.0, max_bytes: int = 5_000_000, app_cfg: dict[str, Any] | None = None, printer_id: str | None = None) -> bytes:
+        proxy_cfg = camera_proxy_config(app_cfg or {})
+        if proxy_cfg.get("enabled", True):
+            relay = camera_relays.get(printer_id or pcfg.id, pcfg)
+            try:
+                return relay.latest_frame(proxy_cfg, max_age=float(proxy_cfg.get("stale_frame_seconds") or 10.0) * 3.0, wait_timeout=timeout)
+            except Exception as exc:
+                if not proxy_cfg.get("fallback_to_direct", False):
+                    raise RuntimeError(f"Camera relay frame unavailable: {exc}")
+                log("warning", f"Camera relay unavailable for vision; falling back to direct camera grab: {exc}", "camera", printer=printer_id or pcfg.id)
+
         headers = {
             "User-Agent": "cc2-dash-lite-vision",
             "Accept": "multipart/x-mixed-replace,image/jpeg,*/*",
@@ -570,7 +581,7 @@ class VisionMonitor:
 
         frame_info: dict[str, Any] = {}
         try:
-            frame = self._grab_frame(pcfg, timeout=_as_float(ai_cfg.get("vision_frame_timeout_seconds"), 8.0))
+            frame = self._grab_frame(pcfg, timeout=_as_float(ai_cfg.get("vision_frame_timeout_seconds"), 8.0), app_cfg=cfg, printer_id=printer_id)
             heuristics = self._analyze_frame(printer_id, frame, ai_cfg)
             skip_ollama = bool(heuristics.get("camera_bad") and _as_bool(ai_cfg.get("vision_skip_ollama_on_bad_frame"), True))
             if skip_ollama:

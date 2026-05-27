@@ -1,3 +1,10 @@
+
+### v1.2.12 portal navigation fix
+
+- The top navigation **Portal** link now matches the dashboard **Go To Elegoo Web Portal** button behavior.
+- It opens the fullscreen Elegoo portal view in a new browser tab instead of loading the portal chrome page inside the current page.
+- This avoids the awkward nested-wrapper/iframe-in-iframe layout when using the top navigation.
+
 # cc2-dash-lite
 
 **cc2-dash-lite** is a lightweight, mobile-first dashboard and local portal shell for the Elegoo Centauri Carbon 2 / CC2 ecosystem. It provides a clean LAN dashboard, printer discovery and pairing, access controls, configurable navigation, a bundled stock Elegoo portal view, file/timelapse helpers, filament/CANVAS status experiments, and optional Portal AI monitoring with Ollama vision support.

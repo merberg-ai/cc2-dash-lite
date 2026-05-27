@@ -111,12 +111,40 @@
     }
   }
 
+
+  function renderCameraRelay(relay) {
+    relay = relay || {};
+    const dot = $('#cameraRelayDot');
+    const text = $('#cameraRelayText');
+    const detail = $('#cameraRelayStatus');
+    const ok = !!relay.ok;
+    const running = !!relay.running;
+    const connected = !!relay.upstream_connected;
+    const stale = !!relay.stale;
+    const age = Number(relay.last_frame_age_seconds);
+    const clients = Number(relay.client_count || 0);
+    let cls = ok ? 'good' : (running || connected ? 'warn' : 'bad');
+    let label = ok ? 'RELAY LIVE' : (running ? 'RELAY WARMING' : 'RELAY DOWN');
+    if (stale && running) label = 'RELAY STALE';
+    if (dot) dot.className = `dot ${cls}`;
+    if (text) text.textContent = label;
+    if (detail) {
+      const bits = [];
+      bits.push(connected ? 'one upstream camera connection' : 'no upstream camera connection yet');
+      if (Number.isFinite(age)) bits.push(`last frame ${age.toFixed(age < 10 ? 1 : 0)}s ago`);
+      bits.push(`${clients} viewer${clients === 1 ? '' : 's'}`);
+      if (relay.reconnects) bits.push(`${relay.reconnects} reconnects`);
+      if (relay.last_error && !ok) bits.push(String(relay.last_error).slice(0, 90));
+      detail.textContent = bits.join(' · ');
+    }
+  }
+
   window.cc2CameraFailed = function () {
     const ph = $('#cameraPlaceholder');
     const cam = $('#cameraStream');
     if (ph) {
       ph.classList.remove('hidden');
-      ph.innerHTML = '<span>Camera unavailable. Use Portal or check camera URL.</span>';
+      ph.innerHTML = '<span>Camera relay unavailable. Check relay status or restart camera.</span>';
     }
     if (cam) cam.classList.add('hidden');
     setText('cameraState', 'Unavailable');
@@ -148,6 +176,7 @@
       setText('lastUpdate', new Date().toLocaleTimeString());
       if (st.portal_url) setText('portalState', st.portal_url);
       if (st.camera_url) setText('cameraState', st.camera_url);
+      renderCameraRelay(st.camera_relay || st.cameraRelay || {});
 
       const portalButton = $('#portalButton');
       if (portalButton && st.portal_url) portalButton.href = st.portal_url;
@@ -767,6 +796,60 @@
       catch (err) { toast(err.message, 'error'); }
       finally { setButtonBusy(saveMenu, false); }
     });
+
+    async function refreshCameraProxyStatus(button = null) {
+      setButtonBusy(button, true, 'Checking...');
+      try {
+        const data = await api('/api/camera/status');
+        const relays = data.relays || {};
+        const rows = Object.entries(relays);
+        if (!rows.length) {
+          setInlineStatus('cameraProxyStatus', 'No camera relays have been created yet. Save/start the relay or open the dashboard.', 'warn');
+          return data;
+        }
+        const summary = rows.map(([id, r]) => {
+          const age = Number(r.last_frame_age_seconds);
+          const ageText = Number.isFinite(age) ? `${age.toFixed(age < 10 ? 1 : 0)}s` : 'no frame';
+          return `${id}: ${r.ok ? 'OK' : (r.running ? 'warming/stale' : 'down')} · ${r.client_count || 0} clients · ${ageText} · ${r.reconnects || 0} reconnects`;
+        }).join(' | ');
+        setInlineStatus('cameraProxyStatus', summary, rows.every(([, r]) => r.ok) ? 'good' : 'warn');
+        return data;
+      } catch (err) {
+        setInlineStatus('cameraProxyStatus', err.message, 'bad');
+        throw err;
+      } finally {
+        setButtonBusy(button, false);
+      }
+    }
+
+    const refreshCameraProxy = $('#refreshCameraProxyStatusButton');
+    if (refreshCameraProxy) refreshCameraProxy.addEventListener('click', async () => {
+      try { await refreshCameraProxyStatus(refreshCameraProxy); }
+      catch (err) { toast(err.message, 'error'); }
+    });
+
+    const saveCameraProxy = $('#saveCameraProxyButton');
+    if (saveCameraProxy) saveCameraProxy.addEventListener('click', async () => {
+      cfg.camera_proxy = cfg.camera_proxy || {};
+      cfg.camera_proxy.enabled = !!$('#cameraProxyEnabled')?.checked;
+      cfg.camera_proxy.start_on_boot = !!$('#cameraProxyStartOnBoot')?.checked;
+      cfg.camera_proxy.max_client_fps = Number($('#cameraProxyMaxFps')?.value || 8);
+      cfg.camera_proxy.stale_frame_seconds = Number($('#cameraProxyStaleSeconds')?.value || 10);
+      cfg.camera_proxy.upstream_connect_timeout_seconds = Number($('#cameraProxyConnectTimeout')?.value || 5);
+      cfg.camera_proxy.upstream_read_timeout_seconds = Number($('#cameraProxyReadTimeout')?.value || 20);
+      cfg.camera_proxy.rewrite_portal_camera_urls = !!$('#cameraProxyRewritePortal')?.checked;
+      cfg.camera_proxy.fallback_to_direct = !!$('#cameraProxyFallbackDirect')?.checked;
+      setButtonBusy(saveCameraProxy, true, 'Saving...');
+      try {
+        await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) });
+        toast('Camera relay settings saved.', 'success');
+        await refreshCameraProxyStatus();
+      }
+      catch (err) { toast(err.message, 'error'); }
+      finally { setButtonBusy(saveCameraProxy, false); }
+    });
+
+    refreshCameraProxyStatus().catch(() => {});
 
     const refreshOllamaModels = $('#refreshOllamaModelsButton');
     if (refreshOllamaModels) refreshOllamaModels.addEventListener('click', async () => {

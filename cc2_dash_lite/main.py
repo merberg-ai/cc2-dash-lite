@@ -12,7 +12,7 @@ from typing import Any, Optional
 import httpx
 import requests
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -76,6 +76,7 @@ from .cc2.runtime import LitePrinterRuntime
 from .cc2.state import seconds_to_hms
 from .ai import portal_ai
 from .build_info import get_build_info
+from .camera_proxy import camera_proxy_config, camera_relays, rewrite_camera_urls
 from .vision import vision_monitor
 
 app = FastAPI(title="cc2-dash-lite", version=__version__)
@@ -554,6 +555,7 @@ async def _ai_monitor_loop() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     runtime.start_all()
+    camera_relays.configure_from_config(load_config())
     _start_ai_monitor()
 
 
@@ -567,6 +569,7 @@ async def shutdown_event() -> None:
         except asyncio.CancelledError:
             pass
         _AI_MONITOR_TASK = None
+    camera_relays.stop_all()
     runtime.stop_all()
 
 
@@ -792,7 +795,7 @@ async def mqtt_websocket_bridge(websocket: WebSocket, printer_id: str) -> None:
 @app.get("/health")
 async def health():
     cfg = load_config()
-    return {"ok": True, "version": __version__, "build": get_build_info(), "setup_required": needs_setup(cfg), "printers": len(cfg.get("printers") or {})}
+    return {"ok": True, "version": __version__, "build": get_build_info(), "setup_required": needs_setup(cfg), "printers": len(cfg.get("printers") or {}), "camera_relays": camera_relays.status_all()}
 
 
 
@@ -815,6 +818,7 @@ async def api_get_config():
 async def api_save_config(req: SaveConfigRequest):
     cfg = save_config(req.config)
     runtime.reload()
+    camera_relays.configure_from_config(cfg)
     log("info", "Configuration saved", "settings")
     return {"ok": True, "config": cfg}
 
@@ -1197,7 +1201,10 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "file": n.get("file") or "-",
         "updated_at": snap.get("last_message_age_sec"),
         "camera_url": f"/api/printers/{printer_id}/camera/stream",
+        "camera_snapshot_url": f"/api/printers/{printer_id}/camera/snapshot.jpg",
+        "camera_status_url": f"/api/printers/{printer_id}/camera/status",
         "direct_camera_url": f"http://{pcfg.host}:8080/",
+        "camera_relay": camera_relays.get(printer_id, pcfg).status(),
         "portal_url": f"/portal-fullscreen?printer={printer_id}",
         "portal_chrome_url": f"/portal?printer={printer_id}",
         "direct_portal_url": f"http://{pcfg.host}/",
@@ -1483,12 +1490,17 @@ async def api_action(action_id: str, req: ActionRequest | None = None):
     elif action_id == "cancel_print":
         method, params, timeout = STOP_PRINT, {}, 60.0
     elif action_id == "restart_camera":
-        # Wake/enable the webcam. The MJPEG stream is served directly/proxied on :8080.
+        # Wake/enable the webcam, then restart only the cc2-dash-lite relay.
+        # Do not create an extra direct browser-style camera stream here.
         try:
             await asyncio.to_thread(_send_command, pid, ENABLE_WEBCAM, webcam_params(True), False, 5.0)
         except Exception:
             pass
-        method, params, wait = START_VIDEO_STREAM, {}, False
+        pcfg = printer_dict_to_config(pid, (cfg.get("printers") or {}).get(pid) or {})
+        relay = camera_relays.get(pid, pcfg)
+        await asyncio.to_thread(relay.restart, _camera_cfg())
+        log("info", "Camera relay restart requested", "camera", printer=pid)
+        return {"ok": True, "message": "Camera relay restarted", "relay": relay.status()}
     elif action_id == "vision_check_now":
         result = await api_vision_check_now(pid)
         log("info", "Manual Ollama vision check requested", "portal_ai", printer=pid)
@@ -1879,19 +1891,11 @@ async def api_vision_latest_frame(printer_id: str):
     return FileResponse(str(path), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/printers/{printer_id}/camera/url")
-async def api_camera_url(printer_id: str):
-    pcfg = _portal_target(printer_id)
-    if not pcfg:
-        raise HTTPException(404, "Printer not configured")
-    return {"url": f"/api/printers/{printer_id}/camera/stream", "direct_url": f"http://{pcfg.host}:8080/", "alt_direct_url": f"http://{pcfg.host}:8080/?action=stream"}
+def _camera_cfg() -> dict[str, Any]:
+    return camera_proxy_config(load_config())
 
 
-@app.get("/api/printers/{printer_id}/camera/stream")
-async def api_camera_stream(printer_id: str):
-    pcfg = _portal_target(printer_id)
-    if not pcfg:
-        raise HTTPException(404, "Printer not configured")
+def _ensure_camera_enabled(printer_id: str) -> None:
     client = runtime.get_client(printer_id)
     if client:
         try:
@@ -1899,35 +1903,88 @@ async def api_camera_stream(printer_id: str):
         except Exception:
             pass
 
-    urls = [f"http://{pcfg.host}:8080/", f"http://{pcfg.host}:8080/?action=stream"]
-    headers = {"User-Agent": "cc2-dash-lite/" + __version__, "Accept": "multipart/x-mixed-replace,*/*", "Cache-Control": "no-cache"}
-    upstream = None
-    last_error = None
-    for url in urls:
-        try:
-            resp = requests.get(url, stream=True, timeout=(5, None), headers=headers)
-            if resp.status_code >= 400:
-                last_error = f"HTTP {resp.status_code} from {url}"
-                resp.close()
-                continue
-            upstream = resp
-            break
-        except Exception as exc:
-            last_error = str(exc)
-    if upstream is None:
-        raise HTTPException(502, f"Camera stream unavailable: {last_error or 'no upstream response'}")
 
-    content_type = upstream.headers.get("content-type") or "multipart/x-mixed-replace"
+@app.get("/api/printers/{printer_id}/camera/url")
+async def api_camera_url(printer_id: str):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    relay = camera_relays.get(printer_id, pcfg)
+    return {
+        "url": f"/api/printers/{printer_id}/camera/stream",
+        "snapshot_url": f"/api/printers/{printer_id}/camera/snapshot.jpg",
+        "status_url": f"/api/printers/{printer_id}/camera/status",
+        "direct_url": f"http://{pcfg.host}:8080/",
+        "alt_direct_url": f"http://{pcfg.host}:8080/?action=stream",
+        "relay": relay.status(),
+    }
 
-    def body_iter():
-        try:
-            for chunk in upstream.iter_content(chunk_size=16384):
-                if chunk:
-                    yield chunk
-        finally:
-            upstream.close()
 
-    return StreamingResponse(body_iter(), media_type=content_type, headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+@app.get("/api/printers/{printer_id}/camera/status")
+async def api_camera_status(printer_id: str):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    relay = camera_relays.get(printer_id, pcfg)
+    return {"ok": True, "printer": public_printer_dict(pcfg), "relay": relay.status(), "config": _camera_cfg()}
+
+
+@app.get("/api/camera/status")
+async def api_all_camera_status():
+    cfg = load_config()
+    camera_relays.configure_from_config(cfg)
+    return {"ok": True, "relays": camera_relays.status_all(), "config": camera_proxy_config(cfg)}
+
+
+@app.post("/api/printers/{printer_id}/camera/restart")
+async def api_camera_restart(printer_id: str):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    _ensure_camera_enabled(printer_id)
+    relay = camera_relays.get(printer_id, pcfg)
+    relay.restart(_camera_cfg())
+    return {"ok": True, "relay": relay.status()}
+
+
+@app.get("/api/printers/{printer_id}/camera/snapshot.jpg")
+async def api_camera_snapshot(printer_id: str):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    _ensure_camera_enabled(printer_id)
+    relay = camera_relays.get(printer_id, pcfg)
+    c = _camera_cfg()
+    try:
+        frame = await asyncio.to_thread(relay.latest_frame, c, float(c.get("stale_frame_seconds") or 10.0) * 3.0, 8.0)
+    except Exception as exc:
+        raise HTTPException(502, f"Camera snapshot unavailable: {exc}")
+    return Response(frame, media_type="image/jpeg", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
+
+
+@app.get("/api/printers/{printer_id}/camera/latest.jpg")
+async def api_camera_latest(printer_id: str):
+    return await api_camera_snapshot(printer_id)
+
+
+@app.get("/api/printers/{printer_id}/camera/stream")
+async def api_camera_stream(printer_id: str):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    _ensure_camera_enabled(printer_id)
+    relay = camera_relays.get(printer_id, pcfg)
+    c = _camera_cfg()
+    if not c.get("enabled", True):
+        raise HTTPException(503, "Camera relay is disabled in settings")
+    return StreamingResponse(
+        relay.stream(c),
+        media_type="multipart/x-mixed-replace; boundary=cc2dashframe",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "X-CC2-Camera-Relay": "1",
+        },
+    )
 
 
 @app.get("/api/portal-url")
@@ -1963,6 +2020,17 @@ async def portal_proxy(printer_id: str, path: str, request: Request):
     pcfg = _portal_target(printer_id)
     if not pcfg:
         raise HTTPException(404, "Printer not found")
+    camera_path = (path or "").strip("/").lower()
+    camera_query = request.url.query.lower()
+    if request.method.upper() in {"GET", "HEAD"} and (
+        camera_path in {"camera", "stream", "webcam", "video", "mjpeg", "?action=stream"}
+        or camera_path.endswith("/camera")
+        or camera_path.endswith("/stream")
+        or camera_path.endswith("/webcam")
+        or "action=stream" in camera_query
+    ):
+        return await api_camera_stream(printer_id)
+
     target = f"http://{pcfg.host}/{path}"
     if request.url.query:
         target += f"?{request.url.query}"
@@ -1977,13 +2045,22 @@ async def portal_proxy(printer_id: str, path: str, request: Request):
     resp_headers = {k: v for k, v in r.headers.items() if k.lower() not in excluded}
     content = r.content
     ctype = r.headers.get("content-type", "")
-    if "text/html" in ctype:
+    rewrite_enabled = camera_proxy_config(load_config()).get("rewrite_portal_camera_urls", True)
+    if any(token in ctype for token in ("text/html", "javascript", "ecmascript", "text/css", "application/json", "text/plain")):
         try:
-            html = content.decode(r.encoding or "utf-8", errors="replace")
-            base = f"/portal-proxy/{pcfg.id}/"
-            html = html.replace("<head>", f'<head><base href="{base}">', 1)
-            content = html.encode("utf-8")
-            resp_headers["content-type"] = "text/html; charset=utf-8"
+            text = content.decode(r.encoding or "utf-8", errors="replace")
+            if rewrite_enabled:
+                text = rewrite_camera_urls(text, pcfg, printer_id)
+            if "text/html" in ctype:
+                base = f"/portal-proxy/{pcfg.id}/"
+                if "<base " not in text.lower():
+                    text = text.replace("<head>", f'<head><base href="{base}">', 1)
+                shim = f'<script src="/elegoo/cc2dash-camera-shim.js?printer={pcfg.id}&ip={pcfg.host}"></script>'
+                if "cc2dash-camera-shim.js" not in text:
+                    text = text.replace("</head>", shim + "</head>", 1)
+                resp_headers["content-type"] = "text/html; charset=utf-8"
+            content = text.encode("utf-8")
+            resp_headers.pop("content-length", None)
         except Exception:
             pass
     return StreamingResponse(iter([content]), status_code=r.status_code, headers=resp_headers, media_type=resp_headers.get("content-type"))

@@ -71,6 +71,45 @@
   </article>
 
   <article class="card">
+    <h2>Camera Relay / Stream Protection</h2>
+    <p class="muted">Keeps cc2-dash-lite to one upstream camera connection per printer, then fans that stream out to dashboard browsers, snapshots, watchdog vision, and the embedded portal.</p>
+    <div class="settings-list">
+      <div class="setting-row">
+        <div><strong>Enable camera relay</strong><small>Recommended. Browser clients and Portal AI read from the local relay instead of dogpiling the printer camera.</small></div>
+        <div class="setting-controls"><label><input id="cameraProxyEnabled" class="toggle" type="checkbox" {% if cfg.camera_proxy.enabled|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Start relay on boot</strong><small>Opens one upstream camera connection as soon as the backend starts, so watchdog vision has a frame ready.</small></div>
+        <div class="setting-controls"><label><input id="cameraProxyStartOnBoot" class="toggle" type="checkbox" {% if cfg.camera_proxy.start_on_boot|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Max client FPS</strong><small>Limits how fast each browser client receives frames from the relay. Lower is kinder to phones and Pi CPUs.</small></div>
+        <div class="setting-controls"><input id="cameraProxyMaxFps" class="input" type="number" min="1" max="30" step="1" value="{{ cfg.camera_proxy.max_client_fps|default(8) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Stale frame threshold</strong><small>Seconds before the relay marks the camera stale and begins reconnect/recovery behavior.</small></div>
+        <div class="setting-controls"><input id="cameraProxyStaleSeconds" class="input" type="number" min="2" max="300" step="1" value="{{ cfg.camera_proxy.stale_frame_seconds|default(10) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Upstream timeouts</strong><small>Connect timeout and read timeout in seconds for the single printer camera connection.</small></div>
+        <div class="setting-controls compact-inline"><input id="cameraProxyConnectTimeout" class="input" type="number" min="1" max="30" step="1" value="{{ cfg.camera_proxy.upstream_connect_timeout_seconds|default(5) }}"><input id="cameraProxyReadTimeout" class="input" type="number" min="5" max="120" step="1" value="{{ cfg.camera_proxy.upstream_read_timeout_seconds|default(20) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Rewrite stock portal camera URLs</strong><small>Attempts to redirect the embedded Elegoo portal camera references through the local relay instead of printer :8080.</small></div>
+        <div class="setting-controls"><label><input id="cameraProxyRewritePortal" class="toggle" type="checkbox" {% if cfg.camera_proxy.rewrite_portal_camera_urls|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Fallback to direct camera for vision</strong><small>Usually leave this off. Turning it on lets Portal AI hit the printer directly if the relay has no frame, which can reintroduce connection pileups.</small></div>
+        <div class="setting-controls"><label><input id="cameraProxyFallbackDirect" class="toggle" type="checkbox" {% if cfg.camera_proxy.fallback_to_direct|default(false) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Relay diagnostics</strong><small id="cameraProxyStatus">Status not loaded yet.</small></div>
+        <div class="setting-controls compact-inline"><button id="refreshCameraProxyStatusButton" class="button secondary tiny" type="button">Status</button><button id="saveCameraProxyButton" class="button primary tiny" type="button"><span class="button-label">Save Relay</span></button></div>
+      </div>
+    </div>
+  </article>
+
+  <article class="card">
     <h2>Portal AI 🤖</h2>
     <p class="muted">Explainable failure detection using printer telemetry first, with optional server-side camera frame checks through your LAN Ollama vision model.</p>
     <div class="settings-list">

@@ -90,11 +90,17 @@ async def scan_host(host: str, ports: list[int], sem: asyncio.Semaphore) -> Scan
         if not open_ports:
             return None
         title, notes = await _http_title(host, open_ports)
-        likely = any(port in open_ports for port in [80, 8080, 3030, 1883, 8899])
+        # Be intentionally conservative here. A router, Tasmota device, NAS,
+        # camera, etc. can expose port 80/8080, so "port is open" is not enough
+        # to present it as a printer candidate in the UI. Real Centauri Carbon 2
+        # discovery is handled by the UDP method-7000 probe in main.py; this
+        # generic scan is only a fallback helper for hosts that look worth a
+        # directed CC2 verification attempt.
         note_words = " ".join(notes).lower()
-        if title and any(word in title.lower() for word in ["elegoo", "centauri", "printer"]):
-            likely = True
-        if any(word in note_words for word in ["printer", "elegoo", "centauri"]):
+        title_words = (title or "").lower()
+        cc2_ports = 1883 in open_ports and (8080 in open_ports or 80 in open_ports)
+        likely = cc2_ports or any(word in title_words for word in ["elegoo", "centauri"])
+        if any(word in note_words for word in ["elegoo", "centauri"]):
             likely = True
         return ScanCandidate(host=host, open_ports=open_ports, http_title=title, likely_printer=likely, notes=notes or [])
 

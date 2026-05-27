@@ -58,6 +58,7 @@ SEMI_SAFE_METHODS = {
     SET_TEMPERATURE,
     SET_FAN_SPEED,
     SET_PRINT_SPEED,
+    SET_AUTO_REFILL,
 }
 
 DANGEROUS_METHODS = {
@@ -67,7 +68,6 @@ DANGEROUS_METHODS = {
     MOVE_AXES,
     DELETE_FILE,
     HISTORY_DELETE,
-    SET_AUTO_REFILL,
 }
 
 
@@ -189,6 +189,20 @@ def temperature_params(nozzle: Optional[int] = None, bed: Optional[int] = None) 
 
 def print_speed_params(mode: int) -> Dict[str, Any]:
     return {"mode": int(mode)}
+
+
+def auto_refill_params(enabled: bool) -> Dict[str, Any]:
+    value = 1 if enabled else 0
+    # Firmware builds have used slightly different field names for the same
+    # switch. Send the known/obvious aliases; the printer ignores unknown keys.
+    return {
+        "enable": bool(enabled),
+        "enabled": bool(enabled),
+        "auto_refill": value,
+        "autoRefill": value,
+        "status": value,
+        "switch": value,
+    }
 
 
 def history_detail_params(task_ids: list[str] | list[int] | str | int) -> Dict[str, Any]:

@@ -107,7 +107,28 @@ def normalize_status(full_status: Dict[str, Any], attributes: Dict[str, Any] | N
     fans = get_path(full_status, "fans", default={}) or {}
     move = get_path(full_status, "gcode_move_inf", "gcode_move", default={}) or {}
     extruder_e = move.get("e", move.get("extruder")) if isinstance(move, dict) else None
-    speed_mode = move.get("speed_mode") if isinstance(move, dict) else None
+    speed_mode = None
+    if isinstance(move, dict):
+        speed_mode = move.get("speed_mode", move.get("SpeedMode"))
+    if speed_mode is None:
+        speed_mode = get_path(
+            full_status,
+            "print_status.speed_mode",
+            "print_status.print_speed_mode",
+            "print_status.PrintSpeedMode",
+            "print_info.speed_mode",
+            "print_info.SpeedMode",
+            "PrintInfo.speed_mode",
+            "PrintInfo.SpeedMode",
+            "gcode_move.speed_mode",
+            "gcode_move.SpeedMode",
+            "gcode_move_inf.speed_mode",
+            "gcode_move_inf.SpeedMode",
+        )
+    try:
+        speed_mode = int(float(speed_mode)) if speed_mode is not None and speed_mode != "" else None
+    except Exception:
+        pass
 
     normalized = {
         "state": MACHINE_STATUS.get(machine_status_code, f"unknown ({machine_status_code})" if machine_status_code is not None else "unknown"),
@@ -152,7 +173,8 @@ def normalize_status(full_status: Dict[str, Any], attributes: Dict[str, Any] | N
             "y": move.get("y") if isinstance(move, dict) else None,
             "z": move.get("z") if isinstance(move, dict) else None,
             "e": extruder_e,
-            "speed": move.get("speed") if isinstance(move, dict) else None,
+            "speed": (move.get("speed", move.get("Speed")) if isinstance(move, dict) else None) or get_path(full_status, "print_status.speed", "print_status.feedrate", "gcode_move.speed", "PrintInfo.PrintSpeedPct", "print_info.print_speed_pct", "print_status.PrintSpeedPct"),
+            "speed_percent": get_path(full_status, "PrintInfo.PrintSpeedPct", "print_info.print_speed_pct", "print_status.PrintSpeedPct", "print_status.speed_percent"),
             "speed_mode": speed_mode,
             "speed_mode_name": SPEED_MODES.get(speed_mode, str(speed_mode) if speed_mode is not None else None),
         },

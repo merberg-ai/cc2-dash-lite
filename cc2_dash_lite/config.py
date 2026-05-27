@@ -99,6 +99,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "printers": {},
     "features": {
         "file_manager_enabled": True,
+        "filament_manager_enabled": True,
     },
     "portal_ai": {
         "enabled": True,
@@ -110,6 +111,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "camera_rules_enabled": True,
         "opencv_rules_enabled": False,
         "vision_ai_enabled": False,
+        "ollama_base_url": "http://192.168.1.24:11434",
+        "ollama_vision_model": "llava",
+        "ollama_timeout_seconds": 45,
+        "vision_check_interval_seconds": 120,
+        "vision_frame_timeout_seconds": 8,
+        "vision_require_active_print": True,
+        "vision_heuristics_enabled": True,
+        "vision_dark_mean_threshold": 58,
+        "vision_dark_contrast_threshold": 22,
+        "vision_dark_relative_drop_threshold": 18,
+        "vision_stringing_edge_density_threshold": 0.125,
+        "vision_stringing_edge_delta_threshold": 0.045,
+        "vision_heuristic_warnings_count_as_bad": True,
+        "vision_skip_ollama_on_bad_frame": True,
+        "vision_confidence_threshold": 70,
+        "vision_severity_threshold": 60,
+        "vision_required_bad_checks": 2,
+        "vision_store_suspicious_only": True,
+        "vision_max_saved_frames": 50,
+        "vision_prompt": "You are monitoring a 3D printer camera image. Return JSON only with visual_state, failure_types, confidence, severity, summary, and recommended_action. Be conservative and do not treat normal supports, purge towers, brims, skirts, infill, filament swaps, or multicolor purge waste as failure unless clearly abnormal.",
         "progress_stuck_minutes": 8,
         "multi_color_mode": "auto",
         "multi_color_progress_stuck_minutes": 30,
@@ -171,6 +192,26 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "confirm_text": "Restart the camera stream?",
             "spinner_text": "Restarting camera...",
         },
+        "vision_check_now": {
+            "label": "Analyze Camera Now",
+            "enabled": True,
+            "visible": True,
+            "order": 45,
+            "style": "primary",
+            "requires_confirm": False,
+            "confirm_text": "Run an Ollama vision check now?",
+            "spinner_text": "Analyzing camera...",
+        },
+        "set_speed_preset": {
+            "label": "Set Speed",
+            "enabled": True,
+            "visible": True,
+            "order": 50,
+            "style": "primary",
+            "requires_confirm": False,
+            "confirm_text": "Change print speed preset?",
+            "spinner_text": "Setting speed...",
+        },
     },
     "effects": {
         "fade_in_cards": True,
@@ -198,6 +239,32 @@ def deep_merge(defaults: Any, loaded: Any) -> Any:
     return copy.deepcopy(loaded if loaded is not None else defaults)
 
 
+def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Small compatibility fixes for older saved config files."""
+    try:
+        speed = ((cfg.get("actions") or {}).get("set_speed_preset") or {})
+        speed.pop("preset_mode", None)
+        speed.pop("preset_name", None)
+        label = str(speed.get("label") or "")
+        if label.lower().startswith("set speed:"):
+            speed["label"] = "Set Speed"
+    except Exception:
+        pass
+    try:
+        # v1.2.4 shipped conservative darkness defaults that missed the CC2
+        # lights-off case. If a saved config still has those exact defaults, move
+        # it to the more useful v1.2.5 thresholds while preserving custom values.
+        ai = cfg.setdefault("portal_ai", {})
+        if ai.get("vision_dark_mean_threshold") in (None, 42, 42.0):
+            ai["vision_dark_mean_threshold"] = 58
+        if ai.get("vision_dark_contrast_threshold") in (None, 18, 18.0):
+            ai["vision_dark_contrast_threshold"] = 22
+        ai.setdefault("vision_dark_relative_drop_threshold", 18)
+    except Exception:
+        pass
+    return cfg
+
+
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -205,7 +272,7 @@ def ensure_data_dir() -> None:
 def load_config() -> dict[str, Any]:
     ensure_data_dir()
     if not CONFIG_PATH.exists():
-        return copy.deepcopy(DEFAULT_CONFIG)
+        return migrate_config(copy.deepcopy(DEFAULT_CONFIG))
     try:
         with CONFIG_PATH.open("r", encoding="utf-8") as fh:
             loaded = json.load(fh)
@@ -215,13 +282,13 @@ def load_config() -> dict[str, Any]:
             CONFIG_PATH.replace(backup)
         except Exception:
             pass
-        return copy.deepcopy(DEFAULT_CONFIG)
-    return deep_merge(DEFAULT_CONFIG, loaded)
+        return migrate_config(copy.deepcopy(DEFAULT_CONFIG))
+    return migrate_config(deep_merge(DEFAULT_CONFIG, loaded))
 
 
 def save_config(cfg: dict[str, Any]) -> dict[str, Any]:
     ensure_data_dir()
-    merged = deep_merge(DEFAULT_CONFIG, cfg)
+    merged = migrate_config(deep_merge(DEFAULT_CONFIG, cfg))
     tmp = CONFIG_PATH.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         json.dump(merged, fh, indent=2, sort_keys=True)

@@ -1174,7 +1174,7 @@
       }
       const files = arrayFromAny(data, ['file_list', 'files', 'list', 'data', 'items', 'FileList']);
       if (!files.length) {
-        renderEmpty(box, 'No G-code files returned.', 'Try Local/USB, a different path, or open the stock portal if the firmware returns a weird shape.');
+        renderEmpty(box, 'No G-code files returned.', 'Try Local/USB, a different path, or open the stock portal if the firmware returns an unexpected response shape.');
         return;
       }
       box.className = 'file-list';

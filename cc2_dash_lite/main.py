@@ -69,7 +69,7 @@ from .cc2.commands import (
     print_speed_params,
     webcam_params,
 )
-# Import CommandError from the client module; the weird import above is avoided by this explicit import.
+# Import CommandError from the client module explicitly for clarity.
 from .cc2.client import CommandError
 from .cc2.discovery import discover
 from .cc2.runtime import LitePrinterRuntime

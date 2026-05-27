@@ -78,8 +78,8 @@ def _json_from_text(text: str) -> dict[str, Any]:
     text = (text or "").strip()
     if not text:
         raise ValueError("empty model response")
-    # Ollama models sometimes wrap JSON in markdown fences despite threats,
-    # because LLMs are chaos goblins wearing a nice hat.
+    # Ollama models sometimes wrap JSON in markdown fences despite explicit JSON-only prompts.
+    # Strip common fence formats before parsing.
     text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE).strip()
     text = re.sub(r"\s*```$", "", text).strip()
     try:
@@ -190,7 +190,7 @@ class VisionMonitor:
         """Cheap local frame checks that do not require Ollama.
 
         This is deliberately simple, fast, and explainable. Ollama is great as a
-        second opinion, but dark frames and obvious fine-edge chaos should not be
+        second opinion, but dark frames and obvious fine-edge anomalies should not be
         missed just because a model decided to be chill about it.
         """
         metrics: dict[str, Any] = {
@@ -357,7 +357,7 @@ class VisionMonitor:
         return result
 
     def _apply_telemetry_guard(self, result: dict[str, Any], status: dict[str, Any] | None) -> dict[str, Any]:
-        """Keep the vision model from gaslighting telemetry.
+        """Keep the vision model aligned with telemetry.
 
         Vision models often describe a still frame as "idle" because they cannot see
         motion. If MQTT says the printer is printing, we preserve the visual verdict but

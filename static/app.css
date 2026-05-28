@@ -41,8 +41,9 @@ button, input, select, textarea { font: inherit; }
 .dashboard-card { display:flex; flex-direction:column; gap: .95rem; }
 
 .dashboard-accordion.dashboard-card { display:block; padding:0; overflow:hidden; }
-.dashboard-summary { min-height:3.25rem; }
+.dashboard-summary { min-height:2.85rem; }
 .dashboard-summary span { display:flex; align-items:center; gap:.45rem; }
+.dashboard-summary small { display:none; }
 .dashboard-accordion:not([open]) .dashboard-summary::after { transform:rotate(-90deg); }
 .dashboard-panel-body { display:flex; flex-direction:column; gap:.95rem; padding:1rem; border-top:1px solid var(--cc2-border); }
 .dashboard-inline-title { margin-bottom:-.15rem; }
@@ -231,6 +232,17 @@ body[data-page="settings"] .button.tiny { min-height:2.05rem; }
 }
 
 /* Portal AI */
+
+.ai-status-grid small {
+  display:block;
+  margin-top:.18rem;
+  color:var(--cc2-muted);
+  font-size:.72rem;
+  line-height:1.25;
+  max-height:2.4em;
+  overflow:hidden;
+}
+
 .portal-ai-brief .ai-reason {
   display:block;
   margin-top:.18rem;

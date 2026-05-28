@@ -1,5 +1,12 @@
 # cc2-dash-lite
 
+### v1.2.16 dashboard section split
+
+- Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
+- Removed the extra explanatory text from dashboard accordion headers so each header only shows the section name.
+- Existing per-printer dashboard accordion state persistence still applies, now using the new section IDs.
+- Quick Actions remains collapsed by default; the new Camera, Print Status, AI Info, and Connection sections start expanded unless the browser has a saved preference.
+
 ### v1.2.15 dashboard accordion polish
 
 - Converted the main dashboard cards to the same collapsible accordion style used by Settings.
@@ -203,14 +210,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.15.zip
+unzip cc2-dash-lite-1.2.16.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.15 cc2-dash-lite
+mv cc2-dash-lite-1.2.16 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

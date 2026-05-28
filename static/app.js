@@ -66,9 +66,13 @@
     setText('assistantText', summary);
     const reason = (ai.reasons || [])[0] || 'No warning rules are currently triggered.';
     setText('assistantReason', reason);
-    setText('aiLevel', `${level.toUpperCase()} · ${risk}%`);
+    const aiLevelText = `${level.toUpperCase()} · ${risk}%`;
     const aiSource = ai.source === 'background' || ai.served_from_cache ? 'watchdog' : 'checked';
-    setText('aiLastCheck', ai.last_check ? `${aiSource} ${ai.last_check}` : 'checking...');
+    const aiCheckText = ai.last_check ? `${aiSource} ${ai.last_check}` : 'checking...';
+    setText('aiLevel', aiLevelText);
+    setText('aiLevelBrief', aiLevelText);
+    setText('aiLastCheck', aiCheckText);
+    setText('aiLastCheckBrief', aiCheckText);
     const bar = $('#aiRiskBar');
     if (bar) {
       bar.style.width = `${risk}%`;

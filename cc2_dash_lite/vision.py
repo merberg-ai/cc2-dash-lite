@@ -31,10 +31,78 @@ Classify the visible print state. Return JSON only using this schema:
   "recommended_action": "keep_watching | inspect | pause_print | stop_print"
 }
 
-Be conservative. Do not call normal supports, purge towers, brims, skirts, infill, filament swaps, or multicolor purge waste a failure unless it is clearly abnormal. If the image is too dark, blurry, blocked, frozen-looking, or unusable, use camera_bad or uncertain rather than guessing."""
+Decision rules:
+- If the print appears normal and you do not see a visible problem, return visual_state "ok".
+- Do not return "uncertain" merely because you cannot be 100% sure. A normal-looking print should be "ok" with moderate confidence.
+- Only return "uncertain" when the image is genuinely ambiguous: blurry, partially blocked, too dark, heavily cropped, frozen-looking, or showing something that could be a failure but is not clear enough to classify.
+- If you return "uncertain", the summary must explain exactly what is visually ambiguous or why the image cannot be judged.
+- Use "camera_bad" when the camera image is unusable because it is too dark, blocked, disconnected, frozen, or badly corrupted.
+
+Be conservative about failures. Do not call normal supports, purge towers, brims, skirts, infill, filament swaps, multicolor purge waste, reflections, or ordinary filament color changes a failure unless it is clearly abnormal. Look specifically for spaghetti/stringing, detached parts, blobs on the nozzle, first-layer failure, severe darkness, or camera blockage."""
 
 VISION_STATES = {"ok", "uncertain", "possible_failure", "failure_likely", "camera_bad"}
 VISION_ACTIONS = {"keep_watching", "inspect", "pause_print", "stop_print"}
+
+BENIGN_UNCERTAIN_PHRASES = (
+    "no visible issue",
+    "no visible issues",
+    "no obvious issue",
+    "no obvious issues",
+    "no apparent issue",
+    "no apparent issues",
+    "no signs of failure",
+    "no visible print failure",
+    "no print failure",
+    "appears normal",
+    "looks normal",
+    "looks ok",
+    "looks okay",
+    "print bed is clean",
+    "bed is clean",
+    "no spaghetti",
+    "no stringing",
+    "no detached",
+    "no blob",
+    "no failed first layer",
+    "first layer appears",
+    "seems to be printing normally",
+    "printing normally",
+)
+
+CONCERNING_UNCERTAIN_PHRASES = (
+    "possible",
+    "might be",
+    "may be",
+    "could be",
+    "hard to tell",
+    "difficult to tell",
+    "ambiguous",
+    "unclear",
+    "blurry",
+    "blocked",
+    "too dark",
+    "dark",
+    "obstructed",
+    "spaghetti",
+    "stringing",
+    "blob",
+    "detached",
+    "failed",
+    "failure",
+    "mess",
+    "lifted",
+    "warping",
+)
+
+BENIGN_HEURISTIC_WARNINGS = {"nearly_identical_frame", "low_contrast_frame"}
+CONCERNING_HEURISTIC_WARNINGS = {
+    "dark_frame",
+    "light_drop_detected",
+    "high_fine_edge_density",
+    "fine_edge_density_jump",
+    "heuristics_error",
+    "telemetry_model_mismatch",
+}
 
 
 def _now_label() -> str:
@@ -400,6 +468,77 @@ class VisionMonitor:
             result["recommended_action"] = "inspect"
         return result
 
+    def _normalize_benign_uncertainty(self, result: dict[str, Any], ai_cfg: dict[str, Any]) -> dict[str, Any]:
+        """Downgrade model self-doubt when the actual visual report is benign.
+
+        Vision models often say "uncertain" as a conversational hedge, then explain
+        that the bed is clean and no failure is visible. For print monitoring that is
+        noise, not a warning. Keep truly ambiguous images as uncertain; treat
+        benign-low-confidence results as OK while preserving the original model text.
+        """
+        if not _as_bool(ai_cfg.get("vision_treat_benign_uncertain_as_ok"), True):
+            return result
+        if str(result.get("visual_state") or "").lower() != "uncertain":
+            return result
+
+        heuristics = result.get("heuristics") if isinstance(result.get("heuristics"), dict) else {}
+        warnings = heuristics.get("warnings") if isinstance(heuristics.get("warnings"), list) else []
+        warning_set = {str(w) for w in warnings}
+        if heuristics.get("camera_bad") or heuristics.get("possible_stringing"):
+            return result
+        if warning_set & CONCERNING_HEURISTIC_WARNINGS:
+            return result
+        if warning_set - BENIGN_HEURISTIC_WARNINGS:
+            return result
+
+        failure_types_raw = result.get("failure_types") or []
+        if isinstance(failure_types_raw, str):
+            failure_types = {failure_types_raw.strip().lower()}
+        elif isinstance(failure_types_raw, list):
+            failure_types = {str(x).strip().lower() for x in failure_types_raw if str(x).strip()}
+        else:
+            failure_types = set()
+        # "unknown" is how some models fill the required array even when they see no issue.
+        if failure_types - {"unknown", "none", "no_issue", "no issues", "n/a", "na"}:
+            return result
+
+        severity = _as_int(result.get("severity"), 0)
+        max_benign_severity = _as_int(ai_cfg.get("vision_benign_uncertain_max_severity"), 25)
+        if severity > max_benign_severity:
+            return result
+
+        action = str(result.get("recommended_action") or "keep_watching").strip().lower()
+        if action not in {"", "keep_watching"}:
+            return result
+
+        summary = str(result.get("summary") or "").strip()
+        summary_l = summary.lower()
+        has_benign = any(phrase in summary_l for phrase in BENIGN_UNCERTAIN_PHRASES)
+        has_concern = any(phrase in summary_l for phrase in CONCERNING_UNCERTAIN_PHRASES)
+        # Allow "no spaghetti" / "no blob" style phrases even though they contain
+        # failure words; the benign phrase list should win for clearly negative phrasing.
+        negated_concerns = any(phrase in summary_l for phrase in ("no spaghetti", "no stringing", "no detached", "no blob", "no failed", "no visible"))
+        if not has_benign:
+            return result
+        if has_concern and not negated_concerns:
+            return result
+
+        original_summary = summary or "Model returned uncertain without visible failure evidence."
+        confidence = _as_int(result.get("confidence"), 0)
+        result.update({
+            "visual_state": "ok",
+            "normalized_from": "uncertain",
+            "benign_uncertainty": True,
+            "original_visual_state": "uncertain",
+            "original_summary": original_summary,
+            "failure_types": [],
+            "confidence": max(25, min(confidence or 45, 60)),
+            "severity": min(severity, 10),
+            "summary": "No visible print failure detected. Model confidence was low, so continuing to watch.",
+            "recommended_action": "keep_watching",
+        })
+        return result
+
     def _log_vision_event(self, printer_id: str, result: dict[str, Any]) -> None:
         state = self._state.setdefault(printer_id, {})
         heur = result.get("heuristics") if isinstance(result.get("heuristics"), dict) else {}
@@ -601,6 +740,7 @@ class VisionMonitor:
                 result = self._normalize_model_result(raw)
             result = self._apply_heuristics(result, heuristics, ai_cfg)
             result = self._apply_telemetry_guard(result, status)
+            result = self._normalize_benign_uncertainty(result, ai_cfg)
             confidence_threshold = _as_int(ai_cfg.get("vision_confidence_threshold"), 70)
             severity_threshold = _as_int(ai_cfg.get("vision_severity_threshold"), 60)
             suspicious = (

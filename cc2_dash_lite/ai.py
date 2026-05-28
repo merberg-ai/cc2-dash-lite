@@ -261,15 +261,27 @@ class PortalAIDetector:
                 risk += bump
                 reasons.append(f"Vision check could not verify the camera image: {summary_text}")
             elif visual_state == "ok":
-                positives.append("Ollama vision check says the camera view looks OK.")
-            elif visual_state == "uncertain":
-                bump = 8 if active_print else 3
-                if bad_now and heuristics.get("possible_stringing"):
-                    bump += 14 if active_print else 6
-                    reasons.append(f"Local vision heuristics flagged possible stringing/spaghetti ({', '.join(map(str, heur_warnings))}): {summary_text}")
+                if vision_result.get("benign_uncertainty") or vision_result.get("normalized_from") == "uncertain":
+                    positives.append("Ollama vision did not find a visible print issue; confidence was low, so it is continuing to watch.")
                 else:
-                    reasons.append(f"Ollama vision is uncertain: {summary_text}")
-                risk += bump
+                    positives.append("Ollama vision check says the camera view looks OK.")
+            elif visual_state == "uncertain":
+                uncertain_threshold = _as_float(ai_cfg.get("vision_uncertain_risk_severity_threshold"), 35.0)
+                has_concerning_heuristics = bool(
+                    heuristics.get("camera_bad")
+                    or heuristics.get("possible_stringing")
+                    or any(str(w) in {"dark_frame", "light_drop_detected", "high_fine_edge_density", "fine_edge_density_jump", "telemetry_model_mismatch"} for w in heur_warnings)
+                )
+                if bad_now and heuristics.get("possible_stringing"):
+                    bump = 22 if active_print else 9
+                    reasons.append(f"Local vision heuristics flagged possible stringing/spaghetti ({', '.join(map(str, heur_warnings))}): {summary_text}")
+                    risk += bump
+                elif severity >= uncertain_threshold or has_concerning_heuristics:
+                    bump = 8 if active_print else 3
+                    reasons.append(f"Ollama vision is ambiguous and may need a look: {summary_text}")
+                    risk += bump
+                else:
+                    positives.append(f"Ollama vision was low-confidence but did not find a visible issue: {summary_text}")
             elif visual_state == "camera_bad":
                 risk += 20 if active_print else 10
                 reasons.append(f"Ollama vision reports a camera/view problem: {summary_text}")

@@ -1,4 +1,12 @@
 
+### v1.2.13 vision sanity + service cleanup
+
+- Ollama vision now treats benign low-confidence results as **Looks OK / low confidence** when the model says it is uncertain but also reports no visible print issues.
+- The default vision prompt now tells Ollama to return `ok` for normal-looking prints instead of hedging with `uncertain`.
+- Portal AI risk scoring no longer raises risk just because the model says `uncertain`; it only warns when uncertainty has actual visual evidence, concerning heuristics, or enough severity.
+- Settings now include **Treat benign uncertainty as OK** under Portal AI.
+- `install.sh` and `uninstall.sh` have more robust systemd service update/removal logic, including stale unit cleanup and stray process cleanup.
+
 ### v1.2.12 portal navigation fix
 
 - The top navigation **Portal** link now matches the dashboard **Go To Elegoo Web Portal** button behavior.
@@ -344,6 +352,7 @@ Current checks include:
 - Filament sensor reports no filament while printing.
 - Printer-reported camera availability hints.
 - Optional Ollama camera-frame analysis.
+- Low-confidence / benign uncertainty normalization so normal-looking prints are shown as OK instead of scary-but-empty warnings.
 - Local frame checks for dark camera images and high fine-edge/stringing-style changes.
 
 The background watchdog starts with the FastAPI service and keeps evaluating configured printers on a timer, even if nobody has the dashboard open. The dashboard displays the latest cached watchdog result when available.
@@ -370,6 +379,7 @@ Useful controls:
 | **Test** | Confirm that the selected model is available. |
 | **Pull** | Request an Ollama model pull by name. |
 | **Analyze Camera Now** | Force an immediate one-shot camera analysis from the dashboard. |
+| **Treat benign uncertainty as OK** | Downgrades "uncertain, but no visible issues" model output into a low-confidence OK state. |
 
 Vision monitoring stores the latest frame under:
 
@@ -785,12 +795,36 @@ Remove service plus `.venv` and `data/`:
 ./uninstall.sh --purge
 ```
 
+The uninstaller now checks normal systemd unit locations, disables/stops the service, removes stale unit symlinks, reloads systemd, resets failed service state, and attempts to kill leftover uvicorn processes launched from this app folder. To skip process cleanup:
+
+```bash
+./uninstall.sh --no-kill-leftovers
+```
+
 > [!CAUTION]
 > `--purge` deletes local configuration, logs, vision frames, and feedback data stored under `data/`.
 
 ---
 
 ## Release notes
+
+### v1.2.13
+
+- Improved Ollama vision classification rules so normal-looking prints should return `ok`, not `uncertain`.
+- Added benign uncertainty normalization for results that say `uncertain` while also reporting no visible issues.
+- Portal AI risk scoring treats low-severity uncertainty as neutral unless there is actual visual evidence or a concerning heuristic.
+- Dashboard vision card shows **looks OK · low confidence** for normalized benign uncertainty.
+- Added Settings → Portal AI → **Treat benign uncertainty as OK**.
+- Improved install/uninstall scripts for more reliable systemd update/removal and stale process cleanup.
+
+### v1.2.12
+
+- Fixed top navigation **Portal** menu item so it opens the fullscreen Elegoo portal in a new browser tab instead of nesting the portal wrapper inside itself.
+
+### v1.2.11
+
+- Added Camera Relay / MJPEG fanout so cc2-dash-lite keeps one upstream camera connection per printer and serves dashboard viewers, snapshots, Portal AI vision, and portal camera rewrites locally.
+- Added camera relay status, latest-frame endpoints, restart endpoint, settings, and diagnostics.
 
 ### v1.2.10
 

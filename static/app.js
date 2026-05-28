@@ -93,6 +93,9 @@
       visionBox.classList.remove('hidden');
       const vState = vision.visual_state || 'pending';
       const vSummary = vision.summary || 'Waiting for a vision check.';
+      const vLabel = vision.benign_uncertainty || vision.normalized_from === 'uncertain'
+        ? 'looks OK · low confidence'
+        : String(vState).replace(/_/g, ' ');
       const heur = vision.heuristics || {};
       const heurWarnings = Array.isArray(heur.warnings) && heur.warnings.length ? `flags ${heur.warnings.join(', ')}` : '';
       const heurMetrics = Number.isFinite(Number(heur.mean_luma)) ? `luma ${Number(heur.mean_luma).toFixed(0)} · contrast ${Number(heur.contrast || 0).toFixed(0)} · edge ${Number(heur.edge_density || 0).toFixed(3)}` : '';
@@ -106,8 +109,9 @@
         heurMetrics
       ].filter(Boolean).join(' · ');
       const img = vision.frame?.latest_url ? `<img class="vision-thumb" src="${esc(vision.frame.latest_url)}" alt="Latest vision frame" loading="lazy">` : '';
-      visionBox.className = `ai-vision-box ${esc(vState)}`;
-      visionBox.innerHTML = `${img}<div><strong>Vision: ${esc(String(vState).replace(/_/g, ' '))}</strong><span>${esc(vSummary)}</span>${vMeta ? `<small>${esc(vMeta)}</small>` : ''}</div>`;
+      const vClass = [String(vState), vision.benign_uncertainty || vision.normalized_from === 'uncertain' ? 'benign_uncertain' : ''].filter(Boolean).join(' ');
+      visionBox.className = `ai-vision-box ${esc(vClass)}`;
+      visionBox.innerHTML = `${img}<div><strong>Vision: ${esc(vLabel)}</strong><span>${esc(vSummary)}</span>${vMeta ? `<small>${esc(vMeta)}</small>` : ''}</div>`;
     }
   }
 
@@ -916,6 +920,7 @@
       cfg.portal_ai.vision_check_interval_seconds = Number($('#aiVisionCheckInterval')?.value || 120);
       cfg.portal_ai.vision_require_active_print = !!$('#aiVisionRequireActivePrint')?.checked;
       cfg.portal_ai.vision_heuristics_enabled = !!$('#aiVisionHeuristicsEnabled')?.checked;
+      cfg.portal_ai.vision_treat_benign_uncertain_as_ok = !!$('#aiVisionBenignUncertainOk')?.checked;
       cfg.portal_ai.vision_dark_mean_threshold = Number($('#aiVisionDarkMeanThreshold')?.value || 58);
       cfg.portal_ai.vision_dark_relative_drop_threshold = Number($('#aiVisionDarkDropThreshold')?.value || 18);
       cfg.portal_ai.vision_stringing_edge_density_threshold = Number($('#aiVisionStringingEdgeThreshold')?.value || 0.125);

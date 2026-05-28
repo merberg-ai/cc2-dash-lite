@@ -142,7 +142,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "vision_required_bad_checks": 2,
         "vision_store_suspicious_only": True,
         "vision_max_saved_frames": 50,
-        "vision_prompt": "You are monitoring a 3D printer camera image. Return JSON only with visual_state, failure_types, confidence, severity, summary, and recommended_action. Be conservative and do not treat normal supports, purge towers, brims, skirts, infill, filament swaps, or multicolor purge waste as failure unless clearly abnormal.",
+        "vision_treat_benign_uncertain_as_ok": True,
+        "vision_benign_uncertain_max_severity": 25,
+        "vision_uncertain_risk_severity_threshold": 35,
+        "vision_prompt": "You are monitoring a 3D printer camera image. Return JSON only with visual_state, failure_types, confidence, severity, summary, and recommended_action. If the print appears normal and you do not see a visible problem, return visual_state ok, not uncertain. Only return uncertain when the image is genuinely ambiguous, blurry, blocked, too dark, or shows something unclear that could be a failure. If you return uncertain, explain what is ambiguous. Be conservative and do not treat normal supports, purge towers, brims, skirts, infill, filament swaps, multicolor purge waste, reflections, or ordinary filament color changes as failure unless clearly abnormal.",
         "progress_stuck_minutes": 8,
         "multi_color_mode": "auto",
         "multi_color_progress_stuck_minutes": 30,
@@ -272,6 +275,17 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         if ai.get("vision_dark_contrast_threshold") in (None, 18, 18.0):
             ai["vision_dark_contrast_threshold"] = 22
         ai.setdefault("vision_dark_relative_drop_threshold", 18)
+    except Exception:
+        pass
+    try:
+        ai = cfg.setdefault("portal_ai", {})
+        ai.setdefault("vision_treat_benign_uncertain_as_ok", True)
+        ai.setdefault("vision_benign_uncertain_max_severity", 25)
+        ai.setdefault("vision_uncertain_risk_severity_threshold", 35)
+        old_prompt = "You are monitoring a 3D printer camera image. Return JSON only with visual_state, failure_types, confidence, severity, summary, and recommended_action. Be conservative and do not treat normal supports, purge towers, brims, skirts, infill, filament swaps, or multicolor purge waste as failure unless clearly abnormal."
+        current_prompt = str(ai.get("vision_prompt") or "").strip()
+        if not current_prompt or current_prompt == old_prompt:
+            ai["vision_prompt"] = str(DEFAULT_CONFIG["portal_ai"]["vision_prompt"])
     except Exception:
         pass
     return cfg

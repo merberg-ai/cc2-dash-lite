@@ -313,6 +313,13 @@ hr { width:100%; border:0; border-top:1px solid var(--cc2-border); margin:0; }
 .ai-vision-box.uncertain {
   border-color:color-mix(in srgb, var(--cc2-warning) 34%, var(--cc2-border));
 }
+.ai-vision-box.benign_uncertain,
+.ai-vision-box.ok {
+  border-color:color-mix(in srgb, var(--cc2-good) 28%, var(--cc2-border));
+}
+.ai-vision-box.benign_uncertain {
+  background:color-mix(in srgb, var(--cc2-good) 7%, var(--cc2-card-soft));
+}
 .ai-vision-box.possible_failure,
 .ai-vision-box.failure_likely,
 .ai-vision-box.camera_bad {

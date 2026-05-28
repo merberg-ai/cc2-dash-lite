@@ -79,7 +79,10 @@
     </details>
 
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="ai_info" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary"><span class="dashboard-summary-title">AI Info</span></summary>
+      <summary class="settings-summary dashboard-summary ai-info-summary">
+        <span class="dashboard-summary-title">AI Info</span>
+        <span id="aiSummaryPill" class="summary-ai-status good" aria-label="AI status">Looks Good</span>
+      </summary>
       <div class="dashboard-panel-body">
         <div class="status-grid two ai-status-grid">
           <div>

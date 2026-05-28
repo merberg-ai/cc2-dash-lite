@@ -58,6 +58,25 @@
     if (el) el.textContent = value ?? '-';
   }
 
+  function summarizeAIHeaderStatus(ai, vision) {
+    ai = ai || {};
+    vision = vision || ai.vision || ai.vision_ai || {};
+    const level = String(ai.level || 'low').toLowerCase();
+    const risk = Math.max(0, Math.min(100, Number(ai.risk || 0)));
+    const vState = String(vision.visual_state || '').toLowerCase();
+    const badVision = ['failure_likely', 'camera_bad', 'failed', 'error'].includes(vState);
+    const fishyVision = ['possible_failure', 'uncertain'].includes(vState) && !(vision.benign_uncertainty || vision.normalized_from === 'uncertain');
+    const highLevel = ['high', 'critical', 'bad', 'error', 'failure'].includes(level);
+    const fishyLevel = ['watch', 'medium', 'warn', 'warning', 'elevated'].includes(level);
+    if (badVision || highLevel || risk >= 60) {
+      return { tone: 'bad', label: 'Possible failure detected' };
+    }
+    if (fishyVision || fishyLevel || risk >= 25) {
+      return { tone: 'warn', label: 'Something looks fishy' };
+    }
+    return { tone: 'good', label: 'Looks Good' };
+  }
+
   function renderPortalAI(ai) {
     ai = ai || {};
     const summary = ai.summary || 'Standing By';
@@ -88,6 +107,14 @@
       reasons.innerHTML = rows.map(r => `<li>${esc(r)}</li>`).join('');
     }
     const vision = ai.vision || ai.vision_ai || {};
+    const headerState = summarizeAIHeaderStatus(ai, vision);
+    const headerPill = $('#aiSummaryPill');
+    if (headerPill) {
+      headerPill.className = `summary-ai-status ${headerState.tone}`;
+      headerPill.textContent = headerState.label;
+      headerPill.title = `Portal AI: ${headerState.label} · ${level.toUpperCase()} · ${risk}%`;
+      headerPill.setAttribute('aria-label', `AI status: ${headerState.label}`);
+    }
     const visionBox = $('#aiVisionBox');
     if (visionBox) {
       if (!cfg?.portal_ai?.vision_ai_enabled) {

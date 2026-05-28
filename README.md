@@ -1,5 +1,11 @@
 # cc2-dash-lite
 
+### v1.2.18 dashboard AI header status
+
+- Added a compact Portal AI status pill to the **AI Info** accordion header when that section is collapsed.
+- The collapsed header now shows **Looks Good**, **Something looks fishy**, or **Possible failure detected** using green/yellow/red styling.
+- The pill follows the current Portal AI risk level, risk percentage, and vision state so you can keep AI Info collapsed without losing the quick safety readout.
+
 ### v1.2.17 dashboard collapsed progress
 
 - Added a compact live progress bar to the **Print Status** accordion header when that section is collapsed.
@@ -216,14 +222,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.17.zip
+unzip cc2-dash-lite-1.2.18.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.17 cc2-dash-lite
+mv cc2-dash-lite-1.2.18 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

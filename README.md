@@ -1,5 +1,12 @@
 # cc2-dash-lite
 
+### v1.2.20 Kiosk camera warm-up fix
+
+- Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
+- The camera placeholder now hides after the MJPEG stream begins loading and falls back gracefully to relay status overlays instead of sitting forever on **Loading camera relay...**.
+- Added kiosk camera retry behavior if the browser reports a stream error.
+- Kiosk status still displays cached Portal AI/vision results when available, but it no longer blocks the camera view while waiting for new AI analysis.
+
 ### v1.2.19 Kiosk mode
 
 - Added a hideable **Kiosk** nav item that opens a minimal camera-first view in a new browser tab.
@@ -245,14 +252,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.19.zip
+unzip cc2-dash-lite-1.2.20.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.19 cc2-dash-lite
+mv cc2-dash-lite-1.2.20 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

@@ -1162,11 +1162,13 @@ def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[di
     return status
 
 
-def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Optional[dict[str, Any]], ai_source: str = "request", force_ai_evaluate: bool = False) -> dict[str, Any]:
+def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Optional[dict[str, Any]], ai_source: str = "request", force_ai_evaluate: bool = False, attach_ai: bool = True) -> dict[str, Any]:
     pcfg = printer_dict_to_config(printer_id, printer)
     if not snap:
         cfg = load_config()
         status = PrinterClient(printer_id, printer, cfg)._empty_status("CC2 client is not running", reachable=False)
+        if not attach_ai:
+            return status
         return _attach_ai_status(printer_id, status, None, cfg, ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
     n = snap.get("normalized") or {}
     temps = n.get("temps") or {}
@@ -1226,7 +1228,90 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }
+    if not attach_ai:
+        return status
     return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
+
+
+def _attach_cached_ai_for_kiosk(printer_id: str, status: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
+    """Attach cached AI/vision data only.
+
+    Kiosk refreshes should be tiny and fast. The normal /api/status route may
+    compute rule-engine state when the cache is missing/stale; that is fine for
+    the dashboard, but a fullscreen camera page should never hold the camera
+    placeholder hostage while AI or telemetry rules warm up.
+    """
+    ai_cfg = cfg.get("portal_ai", {}) or {}
+    vision_cached = vision_monitor.cached_result(printer_id)
+    if vision_cached:
+        status["vision_ai"] = vision_cached
+    cached = portal_ai.cached_result(printer_id)
+    if cached:
+        out = dict(cached)
+        out["served_from_cache"] = True
+        out["kiosk_fast_path"] = True
+        if vision_cached:
+            out.setdefault("vision", vision_cached)
+        status["portal_ai"] = out
+    else:
+        status["portal_ai"] = {
+            "enabled": bool(ai_cfg.get("enabled", True)),
+            "state": "standing_by",
+            "level": "low" if status.get("reachable") else "watch",
+            "risk": 0 if status.get("reachable") else 35,
+            "summary": "Standing By" if status.get("reachable") else "Waiting for printer telemetry",
+            "reasons": ["Kiosk is using the fast cached AI path; background AI will update this badge when available."],
+            "last_check_epoch": None,
+            "last_check": None,
+            "kiosk_fast_path": True,
+        }
+        if vision_cached:
+            status["portal_ai"]["vision"] = vision_cached
+    return status
+
+
+def _kiosk_status_for_printer(printer_id: str, printer: dict[str, Any]) -> dict[str, Any]:
+    cfg = load_config()
+    pcfg = printer_dict_to_config(printer_id, printer)
+    if not runtime.get_client(printer_id):
+        runtime.start(printer_id, pcfg)
+    snap = runtime.snapshot(printer_id)
+    status = _status_from_snapshot(printer_id, printer, snap, ai_source="kiosk", force_ai_evaluate=False, attach_ai=False)
+    # Empty/no-MQTT snapshots come from the generic PrinterClient placeholder,
+    # so make sure kiosk still receives the relayed camera URLs and relay state.
+    status.update({
+        "printer_id": printer_id,
+        "name": status.get("name") or pcfg.name,
+        "host": status.get("host") or pcfg.host,
+        "camera_url": f"/api/printers/{printer_id}/camera/stream",
+        "camera_snapshot_url": f"/api/printers/{printer_id}/camera/snapshot.jpg",
+        "camera_status_url": f"/api/printers/{printer_id}/camera/status",
+        "direct_camera_url": f"http://{pcfg.host}:8080/",
+        "camera_relay": camera_relays.get(printer_id, pcfg).status(),
+        "portal_url": f"/portal-fullscreen?printer={printer_id}",
+        "portal_chrome_url": f"/portal?printer={printer_id}",
+        "kiosk_url": f"/kiosk?printer={printer_id}",
+        "direct_portal_url": f"http://{pcfg.host}/",
+    })
+    return _attach_cached_ai_for_kiosk(printer_id, status, cfg)
+
+
+@app.get("/api/kiosk/status")
+async def api_kiosk_status():
+    cfg = load_config()
+    pid, printer = default_printer(cfg)
+    if not pid or not printer:
+        raise HTTPException(status_code=404, detail="No printer configured")
+    return _kiosk_status_for_printer(pid, printer)
+
+
+@app.get("/api/kiosk/status/{printer_id}")
+async def api_kiosk_status_printer(printer_id: str):
+    cfg = load_config()
+    printer = cfg.get("printers", {}).get(printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not configured")
+    return _kiosk_status_for_printer(printer_id, printer)
 
 
 @app.get("/api/status")

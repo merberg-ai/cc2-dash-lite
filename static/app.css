@@ -959,6 +959,19 @@ body.kiosk-page {
 }
 body.kiosk-page .camera-placeholder {
   z-index:2;
+  flex-direction:column;
+  text-align:center;
+  padding:1rem;
+  background:radial-gradient(circle at center, rgba(20,24,30,.88), rgba(0,0,0,.92));
+}
+body.kiosk-page .camera-placeholder.camera-placeholder-warn {
+  color:var(--cc2-warning);
+}
+body.kiosk-page .camera-placeholder.camera-placeholder-bad {
+  color:var(--cc2-danger);
+}
+body.kiosk-page .camera-placeholder span:last-child {
+  max-width:min(24rem, 80vw);
 }
 @media (max-width: 620px) {
   body.kiosk-page { overflow:auto; }

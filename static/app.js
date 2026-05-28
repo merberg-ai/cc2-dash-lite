@@ -185,15 +185,61 @@
     setText('cameraState', 'Unavailable');
   };
 
-  window.cc2KioskCameraFailed = function () {
+  function setKioskCameraPlaceholder(message, mode = 'warming') {
     const ph = $('#kioskCameraPlaceholder');
+    if (!ph) return;
+    ph.classList.remove('hidden');
+    ph.classList.toggle('camera-placeholder-warn', mode === 'warn');
+    ph.classList.toggle('camera-placeholder-bad', mode === 'bad');
+    ph.innerHTML = `<span class="spinner"></span><span>${message}</span>`;
+  }
+
+  function hideKioskCameraPlaceholder() {
+    const ph = $('#kioskCameraPlaceholder');
+    if (ph) ph.classList.add('hidden');
+  }
+
+  window.cc2KioskCameraLoaded = function () {
+    hideKioskCameraPlaceholder();
     const cam = $('#kioskCameraStream');
-    if (ph) {
-      ph.classList.remove('hidden');
-      ph.innerHTML = '<span>Camera relay unavailable.</span>';
-    }
-    if (cam) cam.classList.add('hidden');
+    if (cam) cam.classList.remove('hidden');
   };
+
+  window.cc2KioskCameraFailed = function () {
+    setKioskCameraPlaceholder('Camera relay reconnecting...', 'warn');
+    const cam = $('#kioskCameraStream');
+    if (cam) {
+      cam.classList.add('hidden');
+      window.clearTimeout(window.__cc2KioskRetryTimer);
+      window.__cc2KioskRetryTimer = window.setTimeout(() => {
+        const src = cam.dataset.streamSrc || cam.getAttribute('src') || '';
+        if (!src) return;
+        const clean = src.replace(/[?&]kiosk_reload=\d+$/, '');
+        cam.src = `${clean}${clean.includes('?') ? '&' : '?'}kiosk_reload=${Date.now()}`;
+      }, 4500);
+    }
+  };
+
+  function primeKioskCamera() {
+    const cam = $('#kioskCameraStream');
+    if (!cam) return;
+    const src = cam.dataset.streamSrc || cam.getAttribute('src');
+    if (src && !cam.getAttribute('src')) {
+      cam.src = `${src}${src.includes('?') ? '&' : '?'}kiosk=1&t=${Date.now()}`;
+    }
+    setKioskCameraPlaceholder('Starting camera relay...', 'warming');
+    // MJPEG load events can be weird across browsers. Do not leave a giant
+    // spinner pinned over the stream forever; after a short grace period, let
+    // the overlay badges explain whether the relay is live/warming/stale.
+    window.setTimeout(() => {
+      const ph = $('#kioskCameraPlaceholder');
+      const relayText = ($('#kioskRelayText')?.textContent || '').toLowerCase();
+      if (ph && !ph.classList.contains('hidden') && !/down|unavailable|error/.test(relayText)) {
+        hideKioskCameraPlaceholder();
+        cam.classList.remove('hidden');
+      }
+    }, 2200);
+  }
 
   async function refreshDashboard() {
     try {
@@ -360,7 +406,7 @@
 
   async function refreshKiosk() {
     const printerId = document.body.dataset.printerId;
-    const statusUrl = printerId ? `/api/status/${encodeURIComponent(printerId)}` : '/api/status';
+    const statusUrl = printerId ? `/api/kiosk/status/${encodeURIComponent(printerId)}` : '/api/kiosk/status';
     try {
       const st = await api(statusUrl);
       const progress = Math.max(0, Math.min(100, Number(st.progress || 0)));
@@ -394,7 +440,11 @@
 
       const ph = $('#kioskCameraPlaceholder');
       const cam = $('#kioskCameraStream');
-      if (ph && cam && !cam.classList.contains('hidden')) ph.classList.add('hidden');
+      const relay = st.camera_relay || st.cameraRelay || {};
+      if (cam && relay.running !== false && relay.enabled !== false) cam.classList.remove('hidden');
+      if (ph && cam && (relay.running || relay.ok || relay.upstream_connected || relay.frames_received > 0)) ph.classList.add('hidden');
+      else if (ph && relay.enabled === false) setKioskCameraPlaceholder('Camera relay disabled in settings.', 'bad');
+      else if (ph && relay.running === false) setKioskCameraPlaceholder('Camera relay is not running yet.', 'warn');
     } catch (err) {
       const aiBadge = $('#kioskAiBadge');
       if (aiBadge) {
@@ -408,6 +458,7 @@
   }
 
   function initKiosk() {
+    primeKioskCamera();
     refreshKiosk();
     const interval = Number(cfg?.kiosk?.refresh_interval_seconds || cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
     setInterval(refreshKiosk, Math.max(1000, interval));

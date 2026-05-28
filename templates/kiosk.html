@@ -44,7 +44,7 @@
             <span>Loading camera relay...</span>
           </div>
           {% if printer %}
-          <img id="kioskCameraStream" class="kiosk-camera-stream" alt="Printer camera stream" src="{{ printer.camera_url }}" onerror="window.cc2KioskCameraFailed && window.cc2KioskCameraFailed()" />
+          <img id="kioskCameraStream" class="kiosk-camera-stream" alt="Printer camera stream" src="{{ printer.camera_url }}?kiosk=1" data-stream-src="{{ printer.camera_url }}" onload="window.cc2KioskCameraLoaded && window.cc2KioskCameraLoaded()" onerror="window.cc2KioskCameraFailed && window.cc2KioskCameraFailed()" />
           {% endif %}
 
           <div class="kiosk-overlay-stack" aria-label="Kiosk print status overlay">

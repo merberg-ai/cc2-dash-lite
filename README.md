@@ -1,5 +1,11 @@
 # cc2-dash-lite
 
+### v1.2.17 dashboard collapsed progress
+
+- Added a compact live progress bar to the **Print Status** accordion header when that section is collapsed.
+- The collapsed header now shows both the section name and current print percentage, so you can keep the dashboard tidy without losing the one number everyone stares at.
+- The full-size progress bar remains inside the expanded Print Status section.
+
 ### v1.2.16 dashboard section split
 
 - Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
@@ -210,14 +216,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.16.zip
+unzip cc2-dash-lite-1.2.17.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.16 cc2-dash-lite
+mv cc2-dash-lite-1.2.17 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

@@ -5,7 +5,7 @@
   {% for card in cards %}
     {% if card.enabled and card.id == 'camera_status' %}
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="camera" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary"><span>Camera</span></summary>
+      <summary class="settings-summary dashboard-summary"><span class="dashboard-summary-title">Camera</span></summary>
       <div class="dashboard-panel-body">
         <div class="camera-wrap" id="cameraWrap">
           <div class="camera-placeholder" id="cameraPlaceholder">
@@ -24,7 +24,13 @@
     </details>
 
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="print_status" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary"><span>Print Status</span></summary>
+      <summary class="settings-summary dashboard-summary print-status-summary">
+        <span class="dashboard-summary-title">Print Status</span>
+        <span class="summary-progress" aria-label="Print progress">
+          <span class="summary-progress-track"><span id="summaryProgressBar" class="summary-progress-bar" style="width:0%"></span></span>
+          <span id="summaryProgressText" class="summary-progress-text">0.0%</span>
+        </span>
+      </summary>
       <div class="dashboard-panel-body">
         <div class="progress-shell">
           <div id="progressBar" class="progress-bar" style="width:0%"></div>
@@ -73,7 +79,7 @@
     </details>
 
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="ai_info" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary"><span>AI Info</span></summary>
+      <summary class="settings-summary dashboard-summary"><span class="dashboard-summary-title">AI Info</span></summary>
       <div class="dashboard-panel-body">
         <div class="status-grid two ai-status-grid">
           <div>
@@ -108,7 +114,7 @@
     </details>
     {% elif card.enabled and card.id == 'quick_actions' %}
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="quick_actions" style="order: {{ card.order }}">
-      <summary class="settings-summary dashboard-summary"><span>Quick Actions</span></summary>
+      <summary class="settings-summary dashboard-summary"><span class="dashboard-summary-title">Quick Actions</span></summary>
       <div class="dashboard-panel-body">
         <div class="button-stack">
         {% for action_id, action in actions %}
@@ -137,7 +143,7 @@
     </details>
     {% elif card.enabled and card.id == 'connection_info' %}
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="connection_info" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary"><span>Connection</span></summary>
+      <summary class="settings-summary dashboard-summary"><span class="dashboard-summary-title">Connection</span></summary>
       <div class="dashboard-panel-body">
         <div class="info-list">
           <div><span>Printer IP</span><strong id="printerHost">{{ printer.host if printer else '-' }}</strong></div>

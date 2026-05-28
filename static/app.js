@@ -164,8 +164,12 @@
       const progress = Math.max(0, Math.min(100, Number(st.progress || 0)));
       const progressBar = $('#progressBar');
       const progressText = $('#progressText');
+      const summaryProgressBar = $('#summaryProgressBar');
+      const summaryProgressText = $('#summaryProgressText');
       if (progressBar) progressBar.style.width = `${progress}%`;
       if (progressText) progressText.textContent = `${progress.toFixed(1)}%`;
+      if (summaryProgressBar) summaryProgressBar.style.width = `${progress}%`;
+      if (summaryProgressText) summaryProgressText.textContent = `${progress.toFixed(1)}%`;
 
       setText('statusText', st.status_text || st.state || 'Unknown');
       renderPortalAI(st.portal_ai || { summary: st.reachable ? 'Standing By' : 'Connection Lost', level: st.reachable ? 'low' : 'watch', risk: st.reachable ? 0 : 35, reasons: [st.message || 'Waiting for printer telemetry.'] });

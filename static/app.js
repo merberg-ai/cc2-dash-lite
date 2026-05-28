@@ -855,6 +855,127 @@
 
     refreshCameraProxyStatus().catch(() => {});
 
+    function applySettingsFormToConfig() {
+      cfg.app = cfg.app || {};
+      cfg.appearance = cfg.appearance || {};
+      cfg.dashboard = cfg.dashboard || {};
+      cfg.features = cfg.features || {};
+      cfg.camera_proxy = cfg.camera_proxy || {};
+      cfg.portal_ai = cfg.portal_ai || {};
+      cfg.actions = cfg.actions || {};
+      cfg.network = cfg.network || {};
+
+      const themeSelect = $('#themeSelect');
+      if (themeSelect) cfg.app.theme = themeSelect.value;
+      cfg.appearance.fonts = cfg.appearance.fonts || {};
+      $$('.font-select').forEach(sel => cfg.appearance.fonts[sel.dataset.fontRole] = sel.value);
+
+      $$('#cardSettings [data-card-id]').forEach(row => {
+        const id = row.dataset.cardId;
+        const c = (cfg.dashboard.cards || []).find(x => x.id === id);
+        if (c) {
+          c.enabled = !!$('.card-enabled', row)?.checked;
+          c.order = Number($('.card-order', row)?.value || 99);
+        }
+      });
+
+      cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
+      cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
+
+      cfg.camera_proxy.enabled = !!$('#cameraProxyEnabled')?.checked;
+      cfg.camera_proxy.start_on_boot = !!$('#cameraProxyStartOnBoot')?.checked;
+      cfg.camera_proxy.max_client_fps = Number($('#cameraProxyMaxFps')?.value || 8);
+      cfg.camera_proxy.stale_frame_seconds = Number($('#cameraProxyStaleSeconds')?.value || 10);
+      cfg.camera_proxy.upstream_connect_timeout_seconds = Number($('#cameraProxyConnectTimeout')?.value || 5);
+      cfg.camera_proxy.upstream_read_timeout_seconds = Number($('#cameraProxyReadTimeout')?.value || 20);
+      cfg.camera_proxy.rewrite_portal_camera_urls = !!$('#cameraProxyRewritePortal')?.checked;
+      cfg.camera_proxy.fallback_to_direct = !!$('#cameraProxyFallbackDirect')?.checked;
+
+      cfg.portal_ai.enabled = !!$('#portalAIEnabled')?.checked;
+      cfg.portal_ai.background_monitor_enabled = !!$('#aiBackgroundMonitorEnabled')?.checked;
+      cfg.portal_ai.check_interval_seconds = Number($('#aiCheckIntervalSeconds')?.value || 30);
+      cfg.portal_ai.background_log_changes = !!$('#aiBackgroundLogChanges')?.checked;
+      cfg.portal_ai.background_min_log_level = $('#aiBackgroundMinLogLevel')?.value || 'watch';
+      cfg.portal_ai.telemetry_rules_enabled = !!$('#aiTelemetryRules')?.checked;
+      cfg.portal_ai.camera_rules_enabled = !!$('#aiCameraRules')?.checked;
+      cfg.portal_ai.vision_ai_enabled = !!$('#aiVisionEnabled')?.checked;
+      cfg.portal_ai.ollama_base_url = $('#aiOllamaBaseUrl')?.value?.trim() || 'http://localhost:11434';
+      cfg.portal_ai.ollama_vision_model = $('#aiOllamaVisionModel')?.value?.trim() || 'llava';
+      cfg.portal_ai.vision_check_interval_seconds = Number($('#aiVisionCheckInterval')?.value || 120);
+      cfg.portal_ai.vision_require_active_print = !!$('#aiVisionRequireActivePrint')?.checked;
+      cfg.portal_ai.vision_heuristics_enabled = !!$('#aiVisionHeuristicsEnabled')?.checked;
+      cfg.portal_ai.vision_treat_benign_uncertain_as_ok = !!$('#aiVisionBenignUncertainOk')?.checked;
+      cfg.portal_ai.vision_dark_mean_threshold = Number($('#aiVisionDarkMeanThreshold')?.value || 42);
+      const darkDrop = $('#aiVisionDarkDropThreshold');
+      if (darkDrop) cfg.portal_ai.vision_dark_relative_drop_threshold = Number(darkDrop.value || 18);
+      cfg.portal_ai.vision_stringing_edge_density_threshold = Number($('#aiVisionStringingEdgeThreshold')?.value || 0.125);
+      cfg.portal_ai.vision_confidence_threshold = Number($('#aiVisionConfidenceThreshold')?.value || 70);
+      cfg.portal_ai.vision_severity_threshold = Number($('#aiVisionSeverityThreshold')?.value || 60);
+      cfg.portal_ai.vision_required_bad_checks = Number($('#aiVisionRequiredBadChecks')?.value || 2);
+      cfg.portal_ai.vision_prompt = $('#aiVisionPrompt')?.value || cfg.portal_ai.vision_prompt || '';
+      cfg.portal_ai.progress_stuck_minutes = Number($('#aiProgressStuckMinutes')?.value || 8);
+      cfg.portal_ai.multi_color_mode = $('#aiMultiColorMode')?.value || 'auto';
+      cfg.portal_ai.multi_color_progress_stuck_minutes = Number($('#aiMultiColorStuckMinutes')?.value || 30);
+      cfg.portal_ai.stale_status_seconds = Number($('#aiStaleStatusSeconds')?.value || 75);
+      cfg.portal_ai.feedback_enabled = !!$('#aiFeedbackEnabled')?.checked;
+      cfg.portal_ai.auto_pause_enabled = !!$('#aiAutoPauseEnabled')?.checked;
+      cfg.portal_ai.auto_pause_threshold = Number($('#aiAutoPauseThreshold')?.value || 90);
+
+      $$('#actionSettings [data-action-id]').forEach(row => {
+        const id = row.dataset.actionId;
+        const a = cfg.actions[id];
+        if (a) {
+          const oldLabel = String(a.label || id);
+          a.label = $('.action-label', row)?.value?.trim() || oldLabel;
+          a.visible = !!$('.action-visible', row)?.checked;
+          a.requires_confirm = !!$('.action-confirm', row)?.checked;
+          a.order = Number($('.action-order', row)?.value || 99);
+          if (id === 'set_speed_preset') {
+            delete a.preset_mode;
+            delete a.preset_name;
+          }
+        }
+      });
+
+      const allowedSubnets = $('#allowedSubnets');
+      if (allowedSubnets) cfg.network.allowed_subnets = allowedSubnets.value.split('\n').map(x => x.trim()).filter(Boolean);
+      const allowedHosts = $('#allowedHosts');
+      if (allowedHosts) cfg.network.allowed_hosts = allowedHosts.value.split('\n').map(x => x.trim()).filter(Boolean);
+      return cfg;
+    }
+
+    async function saveAllSettings(button = null) {
+      const rawOverride = !!$('#useRawJsonOnSave')?.checked;
+      setButtonBusy(button, true, 'Saving...');
+      try {
+        if (rawOverride) {
+          try { cfg = JSON.parse($('#configEditor')?.value || '{}'); }
+          catch (err) { throw new Error('Invalid raw JSON: ' + err.message); }
+        } else {
+          applySettingsFormToConfig();
+          refreshConfigEditor();
+        }
+        await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) });
+        toast('All settings saved. Reloading...', 'success');
+        setTimeout(() => location.reload(), 550);
+      } catch (err) {
+        toast(err.message, 'error', 9000);
+      } finally {
+        setButtonBusy(button, false);
+      }
+    }
+
+    ['saveAllSettingsButton', 'saveAllSettingsButtonBottom'].forEach(id => {
+      const btn = $('#' + id);
+      if (btn) btn.addEventListener('click', () => saveAllSettings(btn));
+    });
+    ['cancelSettingsButton', 'cancelSettingsButtonBottom'].forEach(id => {
+      const btn = $('#' + id);
+      if (btn) btn.addEventListener('click', () => {
+        if (confirm('Discard unsaved settings and reload the saved config?')) location.reload();
+      });
+    });
+
     const refreshOllamaModels = $('#refreshOllamaModelsButton');
     if (refreshOllamaModels) refreshOllamaModels.addEventListener('click', async () => {
       try {

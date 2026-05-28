@@ -89,6 +89,69 @@
           <label><input id="filamentManagerEnabled" class="toggle" type="checkbox" {% if cfg.features.filament_manager_enabled %}checked{% endif %}> show</label>
         </div>
       </div>
+      <div class="setting-row">
+        <div>
+          <strong>Kiosk menu option</strong>
+          <small>Shows or hides the Kiosk link. The Kiosk page opens in a new tab with a minimal camera-first layout.</small>
+        </div>
+        <div class="setting-controls">
+          <label><input id="kioskMenuEnabled" class="toggle" type="checkbox" {% if cfg.features.kiosk_enabled|default(true) %}checked{% endif %}> show</label>
+        </div>
+      </div>
+    </div>
+    </div>
+  </details>
+
+
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Kiosk Mode</span>
+      <small>Minimal camera view with optional print and AI overlays.</small>
+    </summary>
+    <div class="settings-panel-body">
+    <p class="muted">Kiosk opens in a separate tab and keeps the focus on the relayed camera stream. Toggle the overlay pieces you want visible on top of the camera feed.</p>
+    <div class="settings-list">
+      <div class="setting-row">
+        <div><strong>Refresh interval</strong><small>Seconds between status refreshes for progress, time left, and AI label.</small></div>
+        <div class="setting-controls"><input id="kioskRefreshInterval" class="input" type="number" min="1" max="60" step="1" value="{{ cfg.kiosk.refresh_interval_seconds|default(3) }}"></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Camera fit</strong><small>Contain shows the full camera image. Cover fills the screen and may crop edges.</small></div>
+        <div class="setting-controls">
+          <select id="kioskCameraFit" class="input">
+            <option value="contain" {% if (cfg.kiosk.camera_fit|default('contain')) == 'contain' %}selected{% endif %}>contain</option>
+            <option value="cover" {% if (cfg.kiosk.camera_fit|default('contain')) == 'cover' %}selected{% endif %}>cover</option>
+          </select>
+        </div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Top nav bar</strong><small>Shows the printer name plus quick links across the top of the Kiosk tab.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowTopNav" class="toggle" type="checkbox" {% if cfg.kiosk.show_top_nav|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Printer / file overlay</strong><small>Shows the connected printer name and active file over the camera.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowPrinterName" class="toggle" type="checkbox" {% if cfg.kiosk.show_printer_name|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Relay badge</strong><small>Shows whether the stream is coming through the camera relay.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowCameraBadge" class="toggle" type="checkbox" {% if cfg.kiosk.show_camera_badge|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Progress bar overlay</strong><small>Small progress bar and percentage over the camera feed.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowProgress" class="toggle" type="checkbox" {% if cfg.kiosk.show_progress|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>AI status overlay</strong><small>Shows Looks Good, Something looks fishy, or Possible failure detected when Portal AI is enabled.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowAiStatus" class="toggle" type="checkbox" {% if cfg.kiosk.show_ai_status|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Time remaining overlay</strong><small>Shows the current estimated print time remaining.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowTimeLeft" class="toggle" type="checkbox" {% if cfg.kiosk.show_time_left|default(true) %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Print state overlay</strong><small>Shows Printing, Idle, Paused, Offline, or similar status text.</small></div>
+        <div class="setting-controls"><label><input id="kioskShowPrintStatus" class="toggle" type="checkbox" {% if cfg.kiosk.show_print_status|default(true) %}checked{% endif %}> show</label></div>
+      </div>
     </div>
     </div>
   </details>

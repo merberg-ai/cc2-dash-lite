@@ -658,6 +658,21 @@ async def filaments_page(request: Request):
     return templates.TemplateResponse("filaments.html", view_context(request))
 
 
+
+
+@app.get("/kiosk", response_class=HTMLResponse)
+async def kiosk(request: Request, printer: Optional[str] = None):
+    cfg = load_config()
+    if needs_setup(cfg):
+        return RedirectResponse("/setup")
+    pcfg = _portal_target(printer)
+    if not pcfg:
+        return RedirectResponse("/setup")
+    context = view_context(request)
+    context["printer_id"] = pcfg.id
+    context["printer"] = public_printer_dict(pcfg, include_secret=False)
+    return templates.TemplateResponse("kiosk.html", context)
+
 @app.get("/portal", response_class=HTMLResponse)
 async def portal(request: Request, printer: Optional[str] = None):
     pcfg = _portal_target(printer)
@@ -1207,6 +1222,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "camera_relay": camera_relays.get(printer_id, pcfg).status(),
         "portal_url": f"/portal-fullscreen?printer={printer_id}",
         "portal_chrome_url": f"/portal?printer={printer_id}",
+        "kiosk_url": f"/kiosk?printer={printer_id}",
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }

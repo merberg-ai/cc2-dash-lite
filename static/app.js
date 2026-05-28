@@ -185,6 +185,16 @@
     setText('cameraState', 'Unavailable');
   };
 
+  window.cc2KioskCameraFailed = function () {
+    const ph = $('#kioskCameraPlaceholder');
+    const cam = $('#kioskCameraStream');
+    if (ph) {
+      ph.classList.remove('hidden');
+      ph.innerHTML = '<span>Camera relay unavailable.</span>';
+    }
+    if (cam) cam.classList.add('hidden');
+  };
+
   async function refreshDashboard() {
     try {
       const st = await api('/api/status');
@@ -330,6 +340,77 @@
         }
       });
     });
+  }
+
+
+  function renderKioskCameraRelay(relay) {
+    relay = relay || {};
+    const dot = $('#kioskRelayDot');
+    const text = $('#kioskRelayText');
+    if (!dot && !text) return;
+    const ok = !!relay.ok;
+    const running = !!relay.running;
+    const stale = !!relay.stale;
+    let cls = ok ? 'good' : (running ? 'warn' : 'bad');
+    let label = ok ? 'Relay Live' : (running ? 'Relay Warming' : 'Relay Down');
+    if (stale && running) label = 'Relay Stale';
+    if (dot) dot.className = `dot ${cls}`;
+    if (text) text.textContent = label;
+  }
+
+  async function refreshKiosk() {
+    const printerId = document.body.dataset.printerId;
+    const statusUrl = printerId ? `/api/status/${encodeURIComponent(printerId)}` : '/api/status';
+    try {
+      const st = await api(statusUrl);
+      const progress = Math.max(0, Math.min(100, Number(st.progress || 0)));
+      const bar = $('#kioskProgressBar');
+      const text = $('#kioskProgressText');
+      if (bar) bar.style.width = `${progress}%`;
+      if (text) text.textContent = `${progress.toFixed(1)}%`;
+
+      const ai = st.portal_ai || { level: st.reachable ? 'low' : 'watch', risk: st.reachable ? 0 : 35 };
+      const aiState = summarizeAIHeaderStatus(ai, ai.vision || ai.vision_ai || st.vision_ai || {});
+      const aiBadge = $('#kioskAiBadge');
+      if (aiBadge) {
+        aiBadge.className = `kiosk-overlay-pill ai ${aiState.tone}`;
+        aiBadge.textContent = aiState.label;
+        aiBadge.title = `Portal AI: ${aiState.label}`;
+      }
+
+      const statusBadge = $('#kioskStatusBadge');
+      if (statusBadge) {
+        const status = st.status_text || st.state || 'Unknown';
+        statusBadge.textContent = `Status: ${status}`;
+        statusBadge.classList.toggle('bad', !st.reachable || /error|fail|offline/i.test(status));
+        statusBadge.classList.toggle('good', st.reachable && /print|ready|standby|idle/i.test(status));
+      }
+
+      setText('kioskTimeLeftBadge', `Left: ${st.time_left || '-'}`);
+      setText('kioskPrinterName', st.name || cfg?.app?.name || 'cc2-dash-lite');
+      setText('kioskPrinterMeta', st.host || 'connected printer');
+      setText('kioskFileName', st.file && st.file !== '-' ? st.file : (st.status_text || st.state || '-'));
+      renderKioskCameraRelay(st.camera_relay || st.cameraRelay || {});
+
+      const ph = $('#kioskCameraPlaceholder');
+      const cam = $('#kioskCameraStream');
+      if (ph && cam && !cam.classList.contains('hidden')) ph.classList.add('hidden');
+    } catch (err) {
+      const aiBadge = $('#kioskAiBadge');
+      if (aiBadge) {
+        aiBadge.className = 'kiosk-overlay-pill ai bad';
+        aiBadge.textContent = 'Possible failure detected';
+        aiBadge.title = err.message || 'Kiosk status refresh failed';
+      }
+      setText('kioskStatusBadge', 'Status: Error');
+      console.warn(err);
+    }
+  }
+
+  function initKiosk() {
+    refreshKiosk();
+    const interval = Number(cfg?.kiosk?.refresh_interval_seconds || cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
+    setInterval(refreshKiosk, Math.max(1000, interval));
   }
 
   function refreshConfigEditor() {
@@ -863,6 +944,7 @@
       cfg.features = cfg.features || {};
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
       cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
+      cfg.features.kiosk_enabled = !!$('#kioskMenuEnabled')?.checked;
       setButtonBusy(saveMenu, true, 'Saving...');
       try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Menu settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
       catch (err) { toast(err.message, 'error'); }
@@ -929,6 +1011,7 @@
       cfg.dashboard = cfg.dashboard || {};
       cfg.features = cfg.features || {};
       cfg.camera_proxy = cfg.camera_proxy || {};
+      cfg.kiosk = cfg.kiosk || {};
       cfg.portal_ai = cfg.portal_ai || {};
       cfg.actions = cfg.actions || {};
       cfg.network = cfg.network || {};
@@ -949,6 +1032,17 @@
 
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
       cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
+      cfg.features.kiosk_enabled = !!$('#kioskMenuEnabled')?.checked;
+
+      cfg.kiosk.refresh_interval_seconds = Number($('#kioskRefreshInterval')?.value || 3);
+      cfg.kiosk.camera_fit = $('#kioskCameraFit')?.value || 'contain';
+      cfg.kiosk.show_top_nav = !!$('#kioskShowTopNav')?.checked;
+      cfg.kiosk.show_printer_name = !!$('#kioskShowPrinterName')?.checked;
+      cfg.kiosk.show_camera_badge = !!$('#kioskShowCameraBadge')?.checked;
+      cfg.kiosk.show_progress = !!$('#kioskShowProgress')?.checked;
+      cfg.kiosk.show_ai_status = !!$('#kioskShowAiStatus')?.checked;
+      cfg.kiosk.show_time_left = !!$('#kioskShowTimeLeft')?.checked;
+      cfg.kiosk.show_print_status = !!$('#kioskShowPrintStatus')?.checked;
 
       cfg.camera_proxy.enabled = !!$('#cameraProxyEnabled')?.checked;
       cfg.camera_proxy.start_on_boot = !!$('#cameraProxyStartOnBoot')?.checked;
@@ -1693,6 +1787,7 @@
   }
 
   if (page === 'dashboard') initDashboard();
+  if (page === 'kiosk') initKiosk();
   if (page === 'setup') initSetup();
   if (page === 'settings') initSettings();
   if (page === 'logs') initLogs();

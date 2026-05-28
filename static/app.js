@@ -205,7 +205,40 @@
     }
   }
 
+
+  function dashboardAccordionStorageKey() {
+    const printerId = document.body.dataset.printerId || 'default';
+    return `cc2dash.dashboard.accordions.${printerId}`;
+  }
+
+  function initDashboardAccordions() {
+    const panels = $$('.dashboard-accordion[data-card]');
+    if (!panels.length) return;
+    const key = dashboardAccordionStorageKey();
+    let saved = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(key) || '{}') || {};
+    } catch {
+      saved = {};
+    }
+    panels.forEach(panel => {
+      const id = panel.dataset.card;
+      if (Object.prototype.hasOwnProperty.call(saved, id)) {
+        panel.open = !!saved[id];
+      }
+    });
+    const persist = () => {
+      const state = {};
+      panels.forEach(panel => {
+        if (panel.dataset.card) state[panel.dataset.card] = !!panel.open;
+      });
+      try { localStorage.setItem(key, JSON.stringify(state)); } catch {}
+    };
+    panels.forEach(panel => panel.addEventListener('toggle', persist));
+  }
+
   function initDashboard() {
+    initDashboardAccordions();
     refreshDashboard();
     const interval = Number(cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
     setInterval(refreshDashboard, Math.max(1500, interval));

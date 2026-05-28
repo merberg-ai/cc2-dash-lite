@@ -1,5 +1,11 @@
 # cc2-dash-lite
 
+### v1.2.15 dashboard accordion polish
+
+- Converted the main dashboard cards to the same collapsible accordion style used by Settings.
+- Kept Camera / Status and Connection expanded by default, while Quick Actions starts collapsed to reduce scroll clutter.
+- Dashboard accordion open/closed states are saved per printer in browser local storage and restored on the next visit.
+
 ### v1.2.14 mobile header + settings cleanup
 
 - Cleaned up the top header/brand area for mobile browsers so app name, version, branch, and commit display as compact build chips instead of getting clipped.
@@ -197,14 +203,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.14.zip
+unzip cc2-dash-lite-1.2.15.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.14 cc2-dash-lite
+mv cc2-dash-lite-1.2.15 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

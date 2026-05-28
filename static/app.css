@@ -39,6 +39,15 @@ button, input, select, textarea { font: inherit; }
   box-shadow: 0 18px 36px var(--cc2-shadow); overflow: hidden; padding: 1rem;
 }
 .dashboard-card { display:flex; flex-direction:column; gap: .95rem; }
+
+.dashboard-accordion.dashboard-card { display:block; padding:0; overflow:hidden; }
+.dashboard-summary { min-height:3.25rem; }
+.dashboard-summary span { display:flex; align-items:center; gap:.45rem; }
+.dashboard-accordion:not([open]) .dashboard-summary::after { transform:rotate(-90deg); }
+.dashboard-panel-body { display:flex; flex-direction:column; gap:.95rem; padding:1rem; border-top:1px solid var(--cc2-border); }
+.dashboard-inline-title { margin-bottom:-.15rem; }
+.dashboard-inline-title h2 { font-size:1rem; color:var(--cc2-muted); }
+.dashboard-accordion:not([open]) { box-shadow:0 12px 26px color-mix(in srgb, var(--cc2-shadow) 76%, transparent); }
 .hero-card h1, .card h2 { margin:0 0 .55rem; font-family: var(--font-heading); }
 .hero-card p, .card p { margin: .25rem 0 .65rem; color: var(--cc2-muted); line-height:1.45; }
 .muted { color: var(--cc2-muted); }

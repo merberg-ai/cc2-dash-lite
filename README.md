@@ -1,3 +1,38 @@
+# cc2-dash-lite
+
+### v1.2.18 dashboard AI header status
+
+- Added a compact Portal AI status pill to the **AI Info** accordion header when that section is collapsed.
+- The collapsed header now shows **Looks Good**, **Something looks fishy**, or **Possible failure detected** using green/yellow/red styling.
+- The pill follows the current Portal AI risk level, risk percentage, and vision state so you can keep AI Info collapsed without losing the quick safety readout.
+
+### v1.2.17 dashboard collapsed progress
+
+- Added a compact live progress bar to the **Print Status** accordion header when that section is collapsed.
+- The collapsed header now shows both the section name and current print percentage, so you can keep the dashboard tidy without losing the one number everyone stares at.
+- The full-size progress bar remains inside the expanded Print Status section.
+
+### v1.2.16 dashboard section split
+
+- Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
+- Removed the extra explanatory text from dashboard accordion headers so each header only shows the section name.
+- Existing per-printer dashboard accordion state persistence still applies, now using the new section IDs.
+- Quick Actions remains collapsed by default; the new Camera, Print Status, AI Info, and Connection sections start expanded unless the browser has a saved preference.
+
+### v1.2.15 dashboard accordion polish
+
+- Converted the main dashboard cards to the same collapsible accordion style used by Settings.
+- Kept Camera / Status and Connection expanded by default, while Quick Actions starts collapsed to reduce scroll clutter.
+- Dashboard accordion open/closed states are saved per printer in browser local storage and restored on the next visit.
+
+### v1.2.14 mobile header + settings cleanup
+
+- Cleaned up the top header/brand area for mobile browsers so app name, version, branch, and commit display as compact build chips instead of getting clipped.
+- Added Git branch display when available from a git checkout or build environment.
+- Reworked Settings into collapsible panels with a sticky global Save All / Cancel bar.
+- Removed the pile of per-section save buttons for normal settings; Save All now persists appearance, dashboard layout, menu visibility, camera relay, Portal AI, quick actions, and network access together.
+- Moved Advanced JSON into a collapsed-by-default accordion with an explicit raw JSON override checkbox for Save All.
+
 
 ### v1.2.13 vision sanity + service cleanup
 
@@ -13,7 +48,7 @@
 - It opens the fullscreen Elegoo portal view in a new browser tab instead of loading the portal chrome page inside the current page.
 - This avoids the awkward nested-wrapper/iframe-in-iframe layout when using the top navigation.
 
-# cc2-dash-lite
+## Overview
 
 **cc2-dash-lite** is a lightweight, mobile-first dashboard and local portal shell for the Elegoo Centauri Carbon 2 / CC2 ecosystem. It provides a clean LAN dashboard, printer discovery and pairing, access controls, configurable navigation, a bundled stock Elegoo portal view, file/timelapse helpers, filament/CANVAS status experiments, and optional Portal AI monitoring with Ollama vision support.
 
@@ -187,14 +222,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.11.zip
+unzip cc2-dash-lite-1.2.18.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.11 cc2-dash-lite
+mv cc2-dash-lite-1.2.18 cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -807,6 +842,12 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.14
+
+- Mobile header/build metadata cleanup.
+- Settings page accordion cleanup with global Save All / Cancel controls.
+- Advanced JSON collapsed by default with raw JSON override for Save All.
 
 ### v1.2.13
 

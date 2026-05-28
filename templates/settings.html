@@ -7,8 +7,23 @@
     <p>Configure layout, buttons, themes, fonts, network access, and the printer list.</p>
   </article>
 
-  <article class="card">
-    <h2>Theme + Fonts</h2>
+  <div class="settings-actionbar card compact-actionbar" role="region" aria-label="Settings save controls">
+    <div>
+      <strong>Unsaved settings stay local until you hit Save All.</strong>
+      <small>Use Cancel / Reload to throw away changes and reload the saved config.</small>
+    </div>
+    <div class="settings-action-buttons">
+      <button id="cancelSettingsButton" class="button secondary" type="button">Cancel / Reload</button>
+      <button id="saveAllSettingsButton" class="button primary" type="button"><span class="button-label">Save All Settings</span></button>
+    </div>
+  </div>
+
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Theme + Fonts</span>
+      <small>Theme, typography, and visual polish.</small>
+    </summary>
+    <div class="settings-panel-body">
     <label class="field-label" for="themeSelect">Theme</label>
     <select id="themeSelect" class="input">
       {% for id, t in themes.items() %}
@@ -34,18 +49,26 @@
         <select id="buttonFont" class="input font-select" data-font-role="button"></select>
       </div>
     </div>
-    <button id="saveThemeButton" class="button primary full"><span class="button-label">Save Appearance</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Dashboard Layout</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Dashboard Layout</span>
+      <small>Choose dashboard cards and their order.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Enable/disable cards and change their order. Lower numbers appear first.</p>
     <div id="cardSettings" class="settings-list"></div>
-    <button id="saveLayoutButton" class="button primary full"><span class="button-label">Save Layout</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Menu / Features</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Menu / Features</span>
+      <small>Show or hide top navigation features.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Hide unfinished or experimental sections from the top navigation without deleting their config.</p>
     <div class="settings-list">
       <div class="setting-row">
@@ -67,11 +90,15 @@
         </div>
       </div>
     </div>
-    <button id="saveMenuButton" class="button primary full"><span class="button-label">Save Menu</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Camera Relay / Stream Protection</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Camera Relay / Stream Protection</span>
+      <small>One camera upstream connection with local fanout.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Keeps cc2-dash-lite to one upstream camera connection per printer, then fans that stream out to dashboard browsers, snapshots, watchdog vision, and the embedded portal.</p>
     <div class="settings-list">
       <div class="setting-row">
@@ -104,13 +131,18 @@
       </div>
       <div class="setting-row">
         <div><strong>Relay diagnostics</strong><small id="cameraProxyStatus">Status not loaded yet.</small></div>
-        <div class="setting-controls compact-inline"><button id="refreshCameraProxyStatusButton" class="button secondary tiny" type="button">Status</button><button id="saveCameraProxyButton" class="button primary tiny" type="button"><span class="button-label">Save Relay</span></button></div>
+        <div class="setting-controls compact-inline"><button id="refreshCameraProxyStatusButton" class="button secondary tiny" type="button">Status</button></div>
       </div>
     </div>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Portal AI 🤖</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Portal AI 🤖</span>
+      <small>Telemetry, watchdog, Ollama vision, and failure detection.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Explainable failure detection using printer telemetry first, with optional server-side camera frame checks through your LAN Ollama vision model.</p>
     <div class="settings-list">
       <div class="setting-row">
@@ -236,18 +268,26 @@
         <div class="setting-controls"><input id="aiAutoPauseThreshold" class="input" type="number" min="50" max="100" step="5" value="{{ cfg.portal_ai.auto_pause_threshold }}"></div>
       </div>
     </div>
-    <button id="saveAIButton" class="button primary full"><span class="button-label">Save Portal AI</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Buttons / Quick Actions</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Buttons / Quick Actions</span>
+      <small>Rename, order, show, and confirm dashboard actions.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Hide buttons, rename them, reorder them, require confirmation, or tune action-specific options.</p>
     <div id="actionSettings" class="settings-list"></div>
-    <button id="saveActionsButton" class="button primary full"><span class="button-label">Save Buttons</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card printer-manager-card">
-    <h2>Printer Manager</h2>
+  <details class="card settings-panel printer-manager-card" open>
+    <summary class="settings-summary">
+      <span>Printer Manager</span>
+      <small>Scan, add, edit, and remove configured printers.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Scan for verified Centauri Carbon printers, add one manually, remove old entries, or tune per-printer connection/command settings.</p>
 
     <div class="printer-manager-grid">
@@ -278,22 +318,42 @@
 
     <h3 class="section-subtitle">Configured printers</h3>
     <div id="printerSettings" class="settings-list printer-config-list"></div>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Network Access</h2>
+  <details class="card settings-panel" open>
+    <summary class="settings-summary">
+      <span>Network Access</span>
+      <small>Allowed LAN subnets and hosts.</small>
+    </summary>
+    <div class="settings-panel-body">
     <label class="field-label" for="allowedSubnets">Allowed subnets, one per line</label>
     <textarea id="allowedSubnets" class="textarea" rows="4">{{ '\n'.join(cfg.network.allowed_subnets) }}</textarea>
     <label class="field-label" for="allowedHosts">Allowed hosts, one per line</label>
     <textarea id="allowedHosts" class="textarea" rows="3">{{ '\n'.join(cfg.network.allowed_hosts) }}</textarea>
-    <button id="saveNetworkButton" class="button primary full"><span class="button-label">Save Network Access</span></button>
-  </article>
+    </div>
+  </details>
 
-  <article class="card">
-    <h2>Advanced JSON</h2>
+  <details class="card settings-panel">
+    <summary class="settings-summary">
+      <span>Advanced JSON</span>
+      <small>Raw config editor for power users. Collapsed by default.</small>
+    </summary>
+    <div class="settings-panel-body">
     <p class="muted">Full config editor. Handy for command endpoints once the exact CC2 local API calls are nailed down.</p>
+    <label class="raw-json-override"><input id="useRawJsonOnSave" class="toggle" type="checkbox"> Use raw JSON as the source when Save All is clicked</label>
     <textarea id="configEditor" class="textarea code" rows="18">{{ cfg|tojson(indent=2) }}</textarea>
-    <button id="saveJsonButton" class="button danger full"><span class="button-label">Save Full JSON Config</span></button>
-  </article>
+    </div>
+  </details>
+  <div class="settings-actionbar card bottom-actionbar" role="region" aria-label="Settings save controls bottom">
+    <div>
+      <strong>Done tweaking?</strong>
+      <small>Save everything at once, or reload to abandon changes.</small>
+    </div>
+    <div class="settings-action-buttons">
+      <button id="cancelSettingsButtonBottom" class="button secondary" type="button">Cancel / Reload</button>
+      <button id="saveAllSettingsButtonBottom" class="button primary" type="button"><span class="button-label">Save All Settings</span></button>
+    </div>
+  </div>
 </section>
 {% endblock %}

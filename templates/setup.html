@@ -47,6 +47,20 @@
         <option value="{{ id }}" {% if cfg.app.theme == id %}selected{% endif %}>{{ t.name }}</option>
         {% endfor %}
       </select>
+      <div class="theme-preview-grid" data-theme-target="setupTheme" aria-label="Theme previews">
+        {% for id, t in themes.items() %}
+        <button type="button" class="theme-preview-card {% if cfg.app.theme == id %}active{% endif %}" data-theme-choice="{{ id }}" style="--preview-bg: {{ t.colors.bg }}; --preview-bg2: {{ t.colors.bg2 }}; --preview-card: {{ t.colors.card }}; --preview-primary: {{ t.colors.primary }}; --preview-text: {{ t.colors.text }}; --preview-muted: {{ t.colors.muted }}; --preview-border: {{ t.colors.border }}; --preview-success: {{ t.colors.success }}; --preview-warning: {{ t.colors.warning }}; --preview-danger: {{ t.colors.danger }};">
+          <span class="theme-preview-surface">
+            <span class="theme-preview-dot primary"></span>
+            <span class="theme-preview-dot success"></span>
+            <span class="theme-preview-dot warning"></span>
+            <span class="theme-preview-line long"></span>
+            <span class="theme-preview-line short"></span>
+          </span>
+          <span class="theme-preview-name">{{ t.name }}</span>
+        </button>
+        {% endfor %}
+      </div>
       <div class="grid-2 gap setup-field-grid">
         <div>
           <label class="field-label" for="setupBaseFont">Base font</label>

@@ -558,7 +558,30 @@
     });
   }
 
+
+  function initThemePreviewCards(root = document) {
+    $$('.theme-preview-grid', root).forEach(grid => {
+      const selectId = grid.dataset.themeTarget;
+      const select = selectId ? $('#' + selectId) : null;
+      const cards = $$('[data-theme-choice]', grid);
+      const sync = () => {
+        const value = select?.value || '';
+        cards.forEach(card => card.classList.toggle('active', card.dataset.themeChoice === value));
+      };
+      cards.forEach(card => card.addEventListener('click', () => {
+        if (select) {
+          select.value = card.dataset.themeChoice || select.value;
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        sync();
+      }));
+      if (select) select.addEventListener('change', sync);
+      sync();
+    });
+  }
+
   function initSetup() {
+    initThemePreviewCards();
     let setupIndex = 0;
     const setupCards = $$('[data-setup-card]');
     const stepLabel = $('#setupStepLabel');
@@ -945,6 +968,7 @@
   }
 
   function initSettings() {
+    initThemePreviewCards();
     loadFreshConfig().then(data => {
       populateFontSelects(data.font_stacks || []);
       renderSettings();

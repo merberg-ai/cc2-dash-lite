@@ -1,306 +1,263 @@
 # cc2-dash-lite
 
-### v1.2.30 filament polish + idle guards
+![Version](https://img.shields.io/badge/version-1.2.31-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)
+![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%20%2F%20Linux-green)
+![Use](https://img.shields.io/badge/use-private%20hobbyist%20LAN-orange)
 
-- Reordered CANVAS slot display to match the stock portal's physical layout: **1, 4, 2, 3**.
-- Filament load/feed, unload, and edit controls are now enabled only while the printer is idle; the backend also rejects those actions if the printer is printing or in a filament/extruder operation state.
-- Filament edit, load/unload, and Auto Filament Refill actions now refresh from the printer after the command so the UI reconciles with firmware state.
-- Auto Filament Refill now sends the strict stock payload `{ "auto_refill": true/false }` instead of extra aliases.
-- Filament sensor normalization now handles numeric `0/1` reports and additional stock-style/raw status paths, reducing false **unknown** display states.
-- CANVAS load/unload/edit commands now fail loudly when firmware returns an error instead of showing a fake success.
+**cc2-dash-lite** is a lightweight local dashboard and portal shell for the **Elegoo Centauri Carbon 2 / CC2** ecosystem. It gives you a clean LAN dashboard, printer discovery and pairing, camera relay/fanout, a stock Elegoo portal bridge, optional Ollama-powered visual monitoring, feedback-aware AI review tools, kiosk mode, file/history helpers, CANVAS filament controls, and a themeable mobile-friendly UI.
 
-### v1.2.29 filament CANVAS controls
-
-- Filament Manager now mirrors more of the stock Elegoo CANVAS tooling instead of only displaying passive tray cards.
-- Added selectable tray cards with filament color swatches and improved material/color/status metadata display.
-- Added stock-shaped CANVAS load/feed and unload actions using methods `2001` and `2002`.
-- Added filament edit support using method `2003`, including brand, type, display name, filament code, color, and nozzle temperature range.
-- Added mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
-- Filament Manager remains hidden by default under **Settings → Menu / Features** while this area is tested against real firmware behavior.
-
-### v1.2.28 collapsed print state + filament hidden by default
-
-- The collapsed **Print Status** header now shows **IDLE** when no active print is detected.
-- When a print is active, the collapsed **Print Status** header shows **PRINTING** alongside the compact progress bar.
-- Filament Manager remains available, but the top navigation item is now hidden by default until the filament/CANVAS work is ready for normal use.
-- Existing older configs migrate once so **Filament** starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
-
-### v1.2.27 idle status + active-print-only AI
-
-- Normalized idle printer sub-status code `0` so the dashboard shows **Idle** instead of raw **Sub 0**.
-- Added active-print detection to the normalized status payload.
-- Portal AI watchdog, vision monitoring, and manual vision checks now stand by while the printer is idle and resume when an active print job is detected.
-- Idle standby does not overwrite heuristic threshold settings or feedback-learning data.
-
-### v1.2.26 file manager hidden by default
-
-- File Manager remains available, but the top navigation item is now hidden by default because stock firmware timelapse/video export behavior appears inconsistent.
-- Existing older configs migrate once so **Files** starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
-- The stock-portal-style File Manager work from v1.2.24/v1.2.25 is preserved for later testing instead of being removed.
-
-### v1.2.25 timelapse download proxy
-
-- Added a cc2-dash-lite timelapse download proxy endpoint so Video List downloads route through the printer's stock `/download` handler instead of opening raw video tokens as local dashboard paths.
-- Export responses that return a video token/path are converted into dashboard download links.
-- This reduces fake cc2-dash `404 Not Found` errors, but the underlying printer firmware may still fail to generate/export videos.
-
-### v1.2.24 stock-style file manager pass
-
-- Reworked File Manager around the stock portal command shapes for printer files, USB files, print history, and video records.
-- Added stock-style sections for **Printer Files**, **USB Drive**, **Print History**, and **Video List**.
-- Normalized mixed firmware response shapes server-side so the frontend receives predictable file/history/video records where possible.
-
-### v1.2.23 feedback-learning pass
-
-- Portal AI feedback now tries to capture a fresh camera frame when feedback is clicked, with cached-frame fallback.
-- Feedback is interpreted as true positive, false positive, false negative, or true negative based on what Portal AI thought at the time.
-- False-positive feedback can temporarily suppress similar low/severity warnings for the same active print.
-- Added feedback suppression tracking, improved feedback stats, and settings for feedback buttons, suppression TTL, and suppression severity limits.
-- Manual heuristic threshold settings are not overwritten by feedback learning.
-
-### v1.2.22 alphanumeric printer PIN fields
-
-- Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
-- Removed the prefilled `123456` PIN from setup/manual-add flows; new printers now require the user to enter the actual printer access code.
-- Backend printer-add validation now rejects blank access codes instead of silently saving the old default.
-
-### v1.2.21 setup wizard copy cleanup
-
-- Trimmed the first-run setup header card down to only the progress bar.
-- Renamed the setup flow wording from the longer intro copy to **Configure cc2-dash** internally and simplified the printer discovery step to **Find printers**.
-- Removed the extra explanatory setup intro paragraph and tightened the scan button copy.
-
-### v1.2.20 Kiosk camera warm-up fix
-
-- Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
-- The camera placeholder now hides after the MJPEG stream begins loading and falls back gracefully to relay status overlays instead of sitting forever on **Loading camera relay...**.
-- Added kiosk camera retry behavior if the browser reports a stream error.
-- Kiosk status still displays cached Portal AI/vision results when available, but it no longer blocks the camera view while waiting for new AI analysis.
-
-### v1.2.19 Kiosk mode
-
-- Added a hideable **Kiosk** nav item that opens a minimal camera-first view in a new browser tab.
-- Kiosk mode shows the connected printer, compact nav, relayed camera stream, print progress, time remaining, print state, and Portal AI health badge as camera overlays.
-- Added **Settings → Kiosk Mode** controls for overlay visibility, refresh interval, camera fit, and top nav visibility.
-- Added **Settings → Menu / Features → Kiosk menu option** so the Kiosk link can be shown or hidden like Files and Filament.
-
-### v1.2.18 dashboard AI header status
-
-- Added a compact Portal AI status pill to the **AI Info** accordion header when that section is collapsed.
-- The collapsed header now shows **Looks Good**, **Something looks fishy**, or **Possible failure detected** using green/yellow/red styling.
-- The pill follows the current Portal AI risk level, risk percentage, and vision state so you can keep AI Info collapsed without losing the quick safety readout.
-
-### v1.2.17 dashboard collapsed progress
-
-- Added a compact live progress bar to the **Print Status** accordion header when that section is collapsed.
-- The collapsed header now shows both the section name and current print percentage, so you can keep the dashboard tidy without losing the one number everyone stares at.
-- The full-size progress bar remains inside the expanded Print Status section.
-
-### v1.2.16 dashboard section split
-
-- Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
-- Removed the extra explanatory text from dashboard accordion headers so each header only shows the section name.
-- Existing per-printer dashboard accordion state persistence still applies, now using the new section IDs.
-- Quick Actions remains collapsed by default; the new Camera, Print Status, AI Info, and Connection sections start expanded unless the browser has a saved preference.
-
-### v1.2.15 dashboard accordion polish
-
-- Converted the main dashboard cards to the same collapsible accordion style used by Settings.
-- Kept Camera / Status and Connection expanded by default, while Quick Actions starts collapsed to reduce scroll clutter.
-- Dashboard accordion open/closed states are saved per printer in browser local storage and restored on the next visit.
-
-### v1.2.14 mobile header + settings cleanup
-
-- Cleaned up the top header/brand area for mobile browsers so app name, version, branch, and commit display as compact build chips instead of getting clipped.
-- Added Git branch display when available from a git checkout or build environment.
-- Reworked Settings into collapsible panels with a sticky global Save All / Cancel bar.
-- Removed the pile of per-section save buttons for normal settings; Save All now persists appearance, dashboard layout, menu visibility, camera relay, Portal AI, quick actions, and network access together.
-- Moved Advanced JSON into a collapsed-by-default accordion with an explicit raw JSON override checkbox for Save All.
-
-
-### v1.2.13 vision sanity + service cleanup
-
-- Ollama vision now treats benign low-confidence results as **Looks OK / low confidence** when the model says it is uncertain but also reports no visible print issues.
-- The default vision prompt now tells Ollama to return `ok` for normal-looking prints instead of hedging with `uncertain`.
-- Portal AI risk scoring no longer raises risk just because the model says `uncertain`; it only warns when uncertainty has actual visual evidence, concerning heuristics, or enough severity.
-- Settings now include **Treat benign uncertainty as OK** under Portal AI.
-- `install.sh` and `uninstall.sh` have more robust systemd service update/removal logic, including stale unit cleanup and stray process cleanup.
-
-### v1.2.12 portal navigation fix
-
-- The top navigation **Portal** link now matches the dashboard **Go To Elegoo Web Portal** button behavior.
-- It opens the fullscreen Elegoo portal view in a new browser tab instead of loading the portal chrome page inside the current page.
-- This avoids the awkward nested-wrapper/iframe-in-iframe layout when using the top navigation.
-
-## Overview
-
-**cc2-dash-lite** is a lightweight, mobile-first dashboard and local portal shell for the Elegoo Centauri Carbon 2 / CC2 ecosystem. It provides a clean LAN dashboard, printer discovery and pairing, access controls, configurable navigation, a bundled stock Elegoo portal view, file/timelapse helpers, filament/CANVAS status experiments, and optional Portal AI monitoring with Ollama vision support, feedback-aware false-alarm suppression, and experimental stock-style file/timelapse helpers.
+It is designed for a Raspberry Pi-style board sitting on your trusted home network. Think: printer-room companion dashboard, not enterprise print-farm overlord.
 
 > [!WARNING]
-> **Personal / home / hobbyist use only.** This project is not designed, tested, or recommended for production, commercial print farms, safety-critical environments, remote unattended operation, or any situation where a failed command, missed detection, or incorrect AI result could cause damage. Use it on a trusted LAN, keep physical access to the printer, and treat all AI/vision output as advisory.
+> **Private, home, hobbyist use only.** cc2-dash-lite is not designed, tested, or recommended for production environments, commercial print farms, safety-critical workflows, unattended remote operation, or any situation where missed detection, a failed command, or an incorrect AI result could cause damage. Keep physical access to your printer and use the stock printer controls as the final authority.
 
 > [!IMPORTANT]
-> This is an unofficial community-style dashboard. It is not a replacement for the stock Elegoo portal, and it is not affiliated with or endorsed by Elegoo or OctoEverywhere. The **Go To Elegoo Web Portal** button remains available as the primary fallback.
+> This is an unofficial project. It is not affiliated with, endorsed by, or supported by Elegoo, OctoEverywhere, or any printer vendor. Firmware behavior can change. Some stock command paths behave differently across firmware versions.
+
+> [!NOTE]
+> In this version, **Portal AI cannot pause, resume, cancel, or otherwise control print jobs automatically**. AI/vision monitoring is advisory only. Manual dashboard controls can still be enabled by the user, but the AI watchdog does not issue pause/cancel commands yet.
 
 ---
 
 ## Table of contents
 
-- [Project goals](#project-goals)
+- [Current status](#current-status)
+- [Tested hardware and platform notes](#tested-hardware-and-platform-notes)
 - [Feature overview](#feature-overview)
-- [Requirements](#requirements)
-- [Quick install](#quick-install)
+- [What cc2-dash-lite does not do](#what-cc2-dash-lite-does-not-do)
+- [Install from GitHub on Raspberry Pi OS](#install-from-github-on-raspberry-pi-os)
+- [Run manually](#run-manually)
 - [Install as a systemd service](#install-as-a-systemd-service)
-- [First-run setup wizard](#first-run-setup-wizard)
+- [Update from GitHub](#update-from-github)
+- [First-run setup](#first-run-setup)
 - [Using the dashboard](#using-the-dashboard)
 - [Printer Manager](#printer-manager)
 - [Camera Relay / stream protection](#camera-relay--stream-protection)
 - [Kiosk mode](#kiosk-mode)
-- [Portal AI and Ollama vision monitoring](#portal-ai-and-ollama-vision-monitoring)
-- [AI feedback / dataset collection](#ai-feedback--dataset-collection)
-- [Logs](#logs)
+- [Portal AI and Ollama vision](#portal-ai-and-ollama-vision)
+- [AI feedback and false-alarm suppression](#ai-feedback-and-false-alarm-suppression)
 - [File Manager](#file-manager)
-- [Filament Manager](#filament-manager)
+- [Filament Manager / CANVAS controls](#filament-manager--canvas-controls)
 - [Stock Elegoo portal bridge](#stock-elegoo-portal-bridge)
-- [Commands and safety gates](#commands-and-safety-gates)
-- [Configuration](#configuration)
-- [Theme and UI customization](#theme-and-ui-customization)
-- [Project layout](#project-layout)
+- [Themes and appearance](#themes-and-appearance)
+- [Logs and diagnostics](#logs-and-diagnostics)
+- [Safety gates and command behavior](#safety-gates-and-command-behavior)
+- [Configuration and data paths](#configuration-and-data-paths)
+- [Useful API endpoints](#useful-api-endpoints)
 - [Troubleshooting](#troubleshooting)
 - [Known limitations](#known-limitations)
 - [Uninstall](#uninstall)
+- [Project layout](#project-layout)
 - [Release notes](#release-notes)
+- [Development checks](#development-checks)
 
 ---
 
-## Project goals
+## Current status
 
-cc2-dash-lite is intended to be:
+Current documented version:
 
-- **Local-first**: designed for use on a trusted home LAN.
-- **Mobile-friendly**: usable from a phone or tablet while walking around the printer room.
-- **Beginner approachable**: first-run setup guides you through discovery, manual add, UI settings, access controls, and AI monitoring.
-- **Transparent**: key events are logged, risky controls are gated, and Portal AI explains the reasons behind its risk level.
-- **Extendable**: file management, filament management, CANVAS/MMS support, and AI monitoring can be improved over time without replacing the whole dashboard.
+```text
+1.2.31 theme-expansion
+```
 
-It is not trying to be a hardened production control platform. Keep the stock portal and the printer's physical controls available.
+Major current capabilities:
+
+| Area | Status |
+|---|---|
+| Printer discovery / pairing | Working, verified Centauri discovery filtering |
+| Dashboard status | Working, mobile-first, active/idle aware |
+| Stock portal bridge | Working as fallback/reference portal |
+| Camera relay | Working, reduces direct camera connection pileups |
+| Kiosk mode | Working, camera-first fullscreen view |
+| Portal AI telemetry checks | Working, advisory-only |
+| Ollama vision checks | Working, active-print-only by default |
+| AI feedback dataset | Working, includes fresh-frame capture and outcome interpretation |
+| False-alarm suppression | Working for similar low/severity warnings on the same active print |
+| File Manager | Available but hidden by default because firmware timelapse/export behavior can be flaky |
+| Filament Manager / CANVAS | Available but hidden by default while command behavior is tested on real firmware |
+| Themes | Built-in theme library with preview cards |
+| Windows support | Not tested; may work manually, but scripts are Linux/systemd focused |
+
+---
+
+## Tested hardware and platform notes
+
+### Tested
+
+- Raspberry Pi Zero 2 W running Raspberry Pi OS-style Linux.
+
+### Expected to work better
+
+- Raspberry Pi 4.
+- Raspberry Pi 5.
+- Other Debian/Ubuntu-like Linux boxes.
+- Small x86 Linux mini-PCs.
+
+A Pi Zero 2 W can run the dashboard, but a Pi 4 or Pi 5 is a much nicer target if you plan to use camera relay, logs, browser clients, and Ollama-related network calls heavily. Ollama itself should usually run on a stronger LAN machine, not on the Zero 2 W.
+
+### Windows
+
+Windows has **not** been tested. The backend is Python/FastAPI, so it might run with manual setup, but the included helper scripts, service installation, and process-management assumptions are aimed at Raspberry Pi OS / Linux / systemd.
 
 ---
 
 ## Feature overview
 
-### Core application
+### Local dashboard
 
 - FastAPI backend.
-- Mobile-first dashboard UI using plain CSS and vanilla JavaScript.
-- First-run card-by-card setup wizard.
-- Raspberry Pi / Linux install, uninstall, virtualenv, and optional systemd service scripts.
-- LAN allowlist guard, defaulting to `192.168.1.0/24` plus localhost.
-- Header build badge showing version plus Git/GitHub commit metadata when available.
-- `/api/version` and `/health` diagnostics.
+- Plain CSS and vanilla JavaScript frontend.
+- Mobile-first responsive layout.
+- Themeable UI.
+- Collapsible dashboard sections.
+- Saved dashboard accordion state per printer.
+- Compact build/version chips in the header.
+- `/health` and `/api/version` diagnostics.
 
 ### Printer discovery and pairing
 
 - UDP Centauri discovery using Elegoo method `7000`.
-- Verified-printer scan filtering so unrelated LAN devices are hidden.
+- Verified-printer scan filtering so unrelated LAN devices are not shown as printer candidates.
 - Manual printer add when discovery is blocked.
-- PIN/access-code pairing during setup.
-- MQTT client using printer serial plus PIN/access code.
-- Normalized printer status from the CC2 MQTT status stream.
-- Settings → Printer Manager for scan/manual add/edit/remove/default printer control.
+- Alphanumeric printer PIN/access-code fields.
+- No prefilled default PIN.
+- Printer serial/SN, access code, MQTT host/port, and command permissions stored per printer.
 
-### Dashboard and controls
+### Dashboard controls
 
-- Configurable dashboard card visibility and ordering.
-- Configurable quick-action button visibility, ordering, confirmation, and labels.
-- Light toggle, pause/resume/cancel, camera wake, speed preset selector, and Analyze Camera Now quick actions where enabled.
-- Dashboard telemetry display for current printer speed preset when reported by the printer.
-- Camera Relay fanout endpoint: cc2-dash-lite keeps one upstream printer camera connection and serves dashboard clients, snapshots, watchdog vision, and portal rewrites from the local relay.
+Optional dashboard actions include:
 
-### Stock portal integration
+- Light toggle.
+- Pause print.
+- Resume print.
+- Cancel print.
+- Camera wake/enable.
+- Speed preset selection.
+- Manual camera analysis.
 
-- Bundled stock Elegoo/OctoEverywhere-style portal bundle from the older cc2-dash source.
-- Local MQTT-over-WebSocket bridge for the stock portal.
-- Fullscreen stock portal route and wrapper portal route.
-- Camera URL rewrite shim that attempts to route embedded stock-portal camera views through the local Camera Relay instead of directly opening printer `:8080`.
+Command buttons are controlled by per-printer safety settings. Dangerous commands remain gated so an accidental phone tap does not become a tiny disaster opera.
 
-### File, timelapse, and filament tools
+### Camera relay
 
-- File Manager page for printer-local files, USB files, print history, and stock-style Video List records.
-- G-code file list/detail/start/delete endpoints from the stock portal command set.
-- Timelapse/history export/download/delete controls where firmware allows it, with a dashboard download proxy for stock printer download URLs.
-- File Manager is hidden by default in the top navigation because some firmware builds appear unreliable around timelapse/video export.
-- Filament Manager page for stock-style CANVAS/MMS filament tray information.
-- Filament Manager is hidden by default in the top navigation until the CANVAS/MMS behavior is polished.
-- Configurable File Manager, Filament Manager, and Kiosk menu visibility.
+- Keeps one upstream MJPEG camera connection to the printer.
+- Serves dashboard clients from local relay/fanout endpoints.
+- Provides cached latest frame for Portal AI and feedback capture.
+- Helps prevent multiple browser tabs and AI checks from dogpiling the printer camera endpoint.
 
-### Kiosk mode
+### Portal AI
 
-Kiosk mode is a minimal camera-first view intended for a spare tablet, wall display, phone, or second browser tab. It opens separately from the main dashboard and keeps the relayed camera stream front and center.
+- Telemetry/rule-based print health checks.
+- Optional Ollama vision analysis.
+- Local image heuristics for dark frames, contrast, fine-edge/stringing-like changes, and stale/frozen-looking frames.
+- Active-print-only monitoring so idle printers do not waste cycles or create meaningless warnings.
+- Advisory-only: no automatic pause/cancel in this version.
 
-The Kiosk camera overlay can show:
+### Feedback-aware AI review
 
-- Camera relay/live status.
-- Print progress bar and percentage.
-- Portal AI badge: **Looks Good**, **Something looks fishy**, or **Possible failure detected**.
-- Estimated time remaining.
-- Current print state.
-- Printer name and active file.
+- Looks Good / Looks Bad / False Alarm buttons.
+- Fresh camera frame capture on feedback click, with cached-frame fallback.
+- Feedback interpreted into true positive / false positive / false negative / true negative.
+- Same-print suppression for repeated low/severity false alarms.
+- Feedback and frame data saved locally for later review/tuning.
 
-Settings live under **Settings → Kiosk Mode**. The top navigation link can be shown or hidden under **Settings → Menu / Features → Kiosk menu option**.
+### Stock portal bridge
 
-### Camera Relay / stream protection
+- Bundled stock Elegoo-style portal page.
+- Local MQTT-over-WebSocket bridge.
+- Fullscreen portal route.
+- Portal camera rewrite shim that tries to route embedded camera views through cc2-dash-lite's camera relay.
 
-The CC2 camera endpoint can become unhappy when multiple browser tabs, the stock portal, the slicer, and background vision checks all connect directly to the printer camera stream. cc2-dash-lite now includes a local **Camera Relay** to reduce that connection pileup.
+### File and filament tools
 
-How it works:
+- File Manager can list stock-style printer files, USB files, print history, and video records where firmware supports it.
+- Timelapse export/download helpers are included, but printer firmware may not reliably generate/export videos.
+- Filament Manager can display and control CANVAS/MMS filament slots using stock command shapes.
+- Filament load/unload/edit controls are idle-only.
 
-1. The backend opens one upstream MJPEG connection to the printer camera.
-2. The latest JPEG frame is kept in memory.
-3. Dashboard viewers receive a local MJPEG fanout stream from cc2-dash-lite.
-4. Portal AI / Ollama vision grabs the cached latest frame instead of opening its own direct camera connection.
-5. `/api/printers/<id>/camera/snapshot.jpg` returns the latest cached frame.
-6. The embedded stock portal has a camera rewrite shim that tries to redirect direct `http://<printer>:8080/` camera references through the relay.
+### Themes
 
-Useful endpoints:
+Built-in themes include:
 
-```text
-GET  /api/printers/<id>/camera/stream
-GET  /api/printers/<id>/camera/snapshot.jpg
-GET  /api/printers/<id>/camera/latest.jpg
-GET  /api/printers/<id>/camera/status
-GET  /api/camera/status
-POST /api/printers/<id>/camera/restart
-```
+- Octo Dark Blue.
+- Amber Terminal.
+- Mainsail-ish Dark.
+- Carbon Glass.
+- Toxic Green Lab.
+- Blood Red Terminal.
+- Elegoo Dark.
+- Klipper Blue.
+- OLED Mono.
+- Cyberpunk Magenta.
+- High Contrast.
 
-Settings are available under **Settings → Camera Relay / Stream Protection**. Recommended defaults are relay enabled, start on boot enabled, portal rewrites enabled, and direct fallback disabled. Direct fallback can help debugging, but it can also recreate the original too-many-connections problem.
-
-> [!NOTE]
-> This protects traffic that goes through cc2-dash-lite. If Elegoo Slicer or another external app connects directly to the printer camera, that still consumes its own printer-side connection. The relay reduces cc2-dash-lite's footprint from many camera connections down to one.
-
-## Portal AI monitoring
-
-- Portal AI telemetry failure detection with explainable risk score.
-- Background watchdog monitoring, even when the browser is closed.
-- Optional Ollama vision monitoring using printer camera snapshots.
-- Configurable Ollama host, model loading, model testing, and model pull request support.
-- Local camera-frame heuristics for dark/low-contrast frames and stringing-style fine-edge warnings.
-- Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm dataset collection, outcome interpretation, and same-print false-alarm suppression.
-- Filterable persisted Logs page for system, command, Portal AI, scanner, filament, and vision events.
+Theme preview cards are available in first-run setup and Settings.
 
 ---
 
-## Requirements
+## What cc2-dash-lite does not do
 
-Recommended target:
+This matters, so here it is without the marketing fog machine:
 
-- Raspberry Pi 4, Raspberry Pi 5, or another small Linux machine.
-- Python 3.10+.
-- Network access to the Centauri Carbon 2 / CC2 printer.
-- Printer and dashboard host on the same trusted LAN.
-- Optional: local Ollama host for vision monitoring.
+- It does **not** make the printer safe to leave unattended.
+- It does **not** replace the stock Elegoo portal.
+- It does **not** guarantee failure detection.
+- It does **not** automatically pause/cancel prints from AI decisions in this version.
+- It does **not** harden your LAN or provide production-grade authentication.
+- It does **not** fix firmware features that are broken in the stock portal itself.
 
-Python dependencies are installed by `install.sh` from `requirements.txt`:
+Use it as a local dashboard, helper, and experiment platform.
+
+---
+
+## Install from GitHub on Raspberry Pi OS
+
+These instructions assume Raspberry Pi OS, Debian, Ubuntu, or a similar apt-based Linux system.
+
+### 1. Update the Pi and install basic tools
+
+```bash
+sudo apt update
+sudo apt install -y git python3 python3-venv python3-pip
+```
+
+### 2. Clone the repository
+
+Replace the URL below with your actual GitHub repository URL if different:
+
+```bash
+git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
+cd cc2-dash-lite
+```
+
+Example if you cloned from your own fork:
+
+```bash
+git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
+```
+
+### 3. Make helper scripts executable
+
+```bash
+chmod +x install.sh run.sh uninstall.sh
+```
+
+### 4. Install Python dependencies
+
+```bash
+./install.sh
+```
+
+The installer will:
+
+1. Check for Python 3.
+2. Create `.venv/` if needed.
+3. Upgrade `pip`, `setuptools`, and `wheel`.
+4. Install packages from `requirements.txt`.
+5. Create the local `data/` folder.
+
+Dependencies currently include:
 
 ```text
 fastapi
@@ -314,49 +271,17 @@ uvicorn[standard]
 Pillow
 ```
 
-> [!NOTE]
-> The installer can install `python3-venv` and `python3-pip` with `apt` on Debian/Raspberry Pi OS systems. Use `--no-system-deps` if you want to manage system packages yourself.
-
 ---
 
-## Quick install
+## Run manually
 
-### 1. Extract the project
-
-```bash
-unzip cc2-dash-lite-1.2.30-filament-polish.zip
-cd cc2-dash-lite
-```
-
-If your extracted folder has a versioned name, either `cd` into that folder or rename it:
-
-```bash
-mv cc2-dash-lite-1.2.30-filament-polish cc2-dash-lite
-cd cc2-dash-lite
-```
-
-### 2. Run the installer
-
-```bash
-chmod +x install.sh run.sh uninstall.sh
-./install.sh
-```
-
-The installer will:
-
-1. Check for Python 3.
-2. Create `.venv/` if needed.
-3. Upgrade `pip`, `setuptools`, and `wheel`.
-4. Install Python dependencies.
-5. Create `data/` for runtime config/logs.
-
-### 3. Start the app manually
+Start the app:
 
 ```bash
 ./run.sh
 ```
 
-Then open the dashboard in a browser:
+Open from another device on the same LAN:
 
 ```text
 http://<pi-ip>:8088/
@@ -368,32 +293,7 @@ Example:
 http://192.168.1.50:8088/
 ```
 
----
-
-## Install as a systemd service
-
-To install and start cc2-dash-lite as a background service:
-
-```bash
-./install.sh --service --port=8088
-```
-
-Useful service commands:
-
-```bash
-sudo systemctl status cc2-dash-lite
-sudo systemctl restart cc2-dash-lite
-sudo systemctl stop cc2-dash-lite
-sudo journalctl -u cc2-dash-lite -f
-```
-
-The generated service runs:
-
-```bash
-python -m uvicorn cc2_dash_lite.main:app --host 0.0.0.0 --port 8088
-```
-
-You can also override the port manually:
+To run on a different port:
 
 ```bash
 CC2_PORT=8090 ./run.sh
@@ -401,159 +301,251 @@ CC2_PORT=8090 ./run.sh
 
 ---
 
-## First-run setup wizard
+## Install as a systemd service
 
-When no valid printer is configured, cc2-dash-lite opens `/setup` and walks through a centered card-by-card wizard.
+For always-on use, install cc2-dash-lite as a background service:
+
+```bash
+./install.sh --service --port=8088
+```
+
+Useful commands:
+
+```bash
+sudo systemctl status cc2-dash-lite --no-pager
+sudo systemctl restart cc2-dash-lite
+sudo systemctl stop cc2-dash-lite
+sudo journalctl -u cc2-dash-lite -f
+```
+
+The service runs:
+
+```bash
+python -m uvicorn cc2_dash_lite.main:app --host 0.0.0.0 --port 8088
+```
+
+---
+
+## Update from GitHub
+
+From the project folder:
+
+```bash
+git pull
+./install.sh
+```
+
+If installed as a service:
+
+```bash
+sudo systemctl restart cc2-dash-lite
+```
+
+If running manually, stop the old process and restart:
+
+```bash
+./run.sh
+```
+
+Your local runtime data lives in `data/`. Do not delete it unless you want to reset printers, logs, AI feedback, and settings.
+
+---
+
+## First-run setup
+
+When no valid printer is configured, cc2-dash-lite opens the setup wizard.
 
 Setup flow:
 
 | Step | Purpose |
 |---:|---|
-| 1 | Welcome and scan for verified Centauri printers |
-| 2 | Optional manual printer add |
-| 3 | UI setup: theme and font choices |
-| 4 | Network access allowlist |
-| 5 | Portal AI, failure detection, and Ollama vision settings |
-| 6 | Summary and launch dashboard |
+| 1 | Find printers using verified Centauri discovery |
+| 2 | Add a printer manually if discovery fails |
+| 3 | Pick theme and font preferences |
+| 4 | Configure LAN access allowlist |
+| 5 | Configure Portal AI and optional Ollama vision |
+| 6 | Review and launch dashboard |
 
-The scanner only shows devices that answer the Centauri discovery probe. Routers, Tasmota plugs, phones, and unrelated LAN web interfaces are hidden instead of being offered as printer candidates.
+The scanner only shows devices that answer the expected Centauri discovery probe. Routers, phones, smart plugs, and random LAN web servers should stay hidden.
 
-The wizard saves the information the CC2 needs:
+Printer settings saved during setup:
 
 ```text
-Printer IP / host
-Printer serial / SN
-Printer PIN / access code
-MQTT port, default 1883
+Printer display name
+Printer host/IP
+Printer serial/SN
+Printer PIN/access code
+MQTT port, usually 1883
 Default printer selection
+Command permission flags
 ```
-
-Discovery usually fills the serial automatically. If discovery is blocked by your network, use manual add with the printer IP, serial number, and PIN/access code.
-
-If a previous build saved an incomplete printer entry without serial/PIN, this build routes you back through setup instead of assuming the printer is paired.
 
 ---
 
 ## Using the dashboard
 
-Primary navigation:
+Primary pages:
 
 | Page | Description |
 |---|---|
-| **Dash** | Main status view with printer telemetry, camera, quick actions, Portal AI, and cards. |
-| **Portal** | Wrapper view for the bundled stock Elegoo portal. |
-| **Files** | Optional File Manager for printer files, USB files, print history, and Video List records; hidden by default as of v1.2.26. |
-| **Filament** | Optional Filament Manager for CANVAS/MMS tray data; hidden by default as of v1.2.28. |
-| **Settings** | Theme, features, quick actions, Printer Manager, access, and Portal AI settings. |
-| **Logs** | Filterable system, command, scanner, Portal AI, filament, and vision logs. |
+| **Dash** | Main printer view with status, camera, quick actions, Portal AI, and connection info. |
+| **Portal** | Stock Elegoo portal bridge/fallback. |
+| **Kiosk** | Camera-first fullscreen display for tablets or spare monitors. |
+| **Files** | Optional file/history/timelapse helper page. Hidden by default. |
+| **Filament** | Optional CANVAS/MMS filament manager. Hidden by default. |
+| **Settings** | Printer Manager, themes, menu visibility, quick actions, access, camera relay, AI settings. |
+| **Logs** | Filterable runtime log viewer. |
 
-The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files and Filament are hidden by default in current builds.
+The **Files**, **Filament**, and **Kiosk** navigation items can be shown or hidden in:
+
+```text
+Settings → Menu / Features
+```
 
 ---
 
 ## Printer Manager
 
-Open **Settings → Printer Manager** to manage configured printers after setup.
+Open:
+
+```text
+Settings → Printer Manager
+```
 
 Available actions:
 
-- Scan for verified printers.
+- Scan for verified Centauri printers.
 - Add a printer manually.
-- Edit display name, host/IP, serial, PIN/access code, and MQTT port.
-- Enable or disable a printer entry.
+- Edit printer name, IP/host, serial, access code, and MQTT port.
+- Enable or disable printer entries.
 - Choose the default printer.
-- Enable or disable command permissions.
-- Enable or disable dangerous command permissions.
+- Enable/disable normal commands.
+- Enable/disable dangerous commands.
 - Remove old printer entries.
 
-Command permissions are intentionally separate from discovery/pairing. A printer can be visible and monitored while potentially destructive actions remain blocked.
+Command permissions are intentionally separate from pairing. You can monitor a printer while keeping control buttons locked down.
 
 ---
 
-## Portal AI and Ollama vision monitoring
+## Camera Relay / stream protection
 
-Portal AI is an advisory monitoring layer. It combines printer telemetry, local rules, optional camera-frame heuristics, and optional Ollama vision analysis.
+The CC2 camera can get cranky when too many things connect to it directly. The Camera Relay reduces that load.
 
-> [!CAUTION]
-> Portal AI does **not** make the printer safe to leave unattended. It can miss failures, produce false alarms, or misunderstand camera images. Use it as an extra status signal, not as a safety system.
+How it works:
 
-Current checks include:
+1. cc2-dash-lite opens one upstream MJPEG connection to the printer camera.
+2. The latest frame is cached in memory.
+3. Browser clients receive a local MJPEG stream from the dashboard server.
+4. Portal AI and feedback capture use the cached/latest frame instead of opening extra direct camera connections.
+5. The stock portal shim tries to rewrite embedded camera URLs through the relay.
 
-- Printer reachable / connected / registered.
-- Stale MQTT status age.
-- Printer error/fail/emergency/stopped states.
-- Paused state warning.
-- Printer exception status.
-- Progress stuck timer.
-- Hotend/bed target sanity while a print appears active.
-- Filament sensor reports no filament while printing.
-- Printer-reported camera availability hints.
-- Optional Ollama camera-frame analysis.
-- Low-confidence / benign uncertainty normalization so normal-looking prints are shown as OK instead of scary-but-empty warnings.
-- Local frame checks for dark camera images and high fine-edge/stringing-style changes.
-
-The background watchdog starts with the FastAPI service, but as of v1.2.27 it only performs AI/vision monitoring while an active print job is detected. When the printer is idle, Portal AI shows an idle standby state and avoids camera/Ollama work. The dashboard displays the latest cached watchdog result when available.
-
-### Ollama setup
-
-Enable Ollama vision in **Settings → Portal AI → Ollama vision monitoring**.
-
-Defaults:
+Useful endpoints:
 
 ```text
-Ollama host:port: http://192.168.1.24:11434
-Vision model: llava
-Vision interval: 120 seconds
-Bad checks required: 2
+GET  /api/printers/<printer_id>/camera/stream
+GET  /api/printers/<printer_id>/camera/snapshot.jpg
+GET  /api/printers/<printer_id>/camera/latest.jpg
+GET  /api/printers/<printer_id>/camera/status
+GET  /api/camera/status
+POST /api/printers/<printer_id>/camera/restart
 ```
 
-Useful controls:
+Recommended default: relay enabled, start-on-boot enabled, portal rewrites enabled, direct fallback disabled unless debugging.
+
+---
+
+## Kiosk mode
+
+Kiosk mode opens a minimal camera-first page intended for:
+
+- Wall tablet.
+- Spare phone.
+- Browser tab on a shop monitor.
+- Quick glance print display.
+
+It can show:
+
+- Camera relay state.
+- Active printer.
+- Active file.
+- Print state: **IDLE** or **PRINTING**.
+- Progress bar and percent.
+- Estimated time remaining.
+- Portal AI badge.
+
+Settings live under:
+
+```text
+Settings → Kiosk Mode
+```
+
+The Kiosk nav item can be shown/hidden under:
+
+```text
+Settings → Menu / Features
+```
+
+---
+
+## Portal AI and Ollama vision
+
+Portal AI combines printer telemetry, local rules, optional camera heuristics, and optional Ollama vision output into an advisory status.
+
+Current behavior:
+
+- Runs only during active print jobs.
+- Stands by when the printer is idle.
+- Tracks stale status, printer error states, pause/error/fail states, stuck progress, temp sanity, filament status hints, and camera/vision issues.
+- Uses Ollama vision only when enabled and when an active print is detected.
+- Does not automatically pause/cancel jobs.
+
+Common checks:
+
+- Printer connected/reachable.
+- MQTT status freshness.
+- Error/fail/emergency/stopped states.
+- Paused state warning.
+- Stuck progress timer.
+- Hotend/bed target sanity during active print.
+- Filament sensor hints.
+- Camera availability hints.
+- Dark/low-contrast frame checks.
+- Fine-edge/stringing-like frame checks.
+- Vision model classification.
+
+Ollama settings live under:
+
+```text
+Settings → Portal AI
+```
+
+Typical Ollama URL:
+
+```text
+http://192.168.1.24:11434
+```
+
+Related controls:
 
 | Control | Purpose |
 |---|---|
-| **Load Models** | Fetch installed models from the configured Ollama `/api/tags` endpoint. |
-| **Model dropdown** | Select the vision model using the active theme styling. |
-| **Test** | Confirm that the selected model is available. |
-| **Pull** | Request an Ollama model pull by name. |
-| **Analyze Camera Now** | Force an immediate one-shot camera analysis from the dashboard. |
-| **Treat benign uncertainty as OK** | Downgrades "uncertain, but no visible issues" model output into a low-confidence OK state. |
-
-Vision monitoring stores the latest frame under:
-
-```text
-data/vision/<printer_id>/latest.jpg
-```
-
-The vision result is merged into the Portal AI risk score. This build remains advisory-only and does not pause or cancel prints automatically.
-
-### Related API endpoints
-
-```text
-GET  /api/ai/monitor
-GET  /api/printers/<printer_id>/ai/status
-POST /api/printers/<printer_id>/ai/check-now
-POST /api/printers/<printer_id>/ai/feedback
-GET  /api/ai/feedback/recent
-GET  /api/ai/feedback/stats
-GET  /api/ai/feedback/suppressions
-GET  /api/printers/<printer_id>/vision/status
-GET  /api/vision/models
-POST /api/vision/pull
-POST /api/printers/<printer_id>/vision/check-now
-GET  /api/printers/<printer_id>/vision/latest.jpg
-```
+| **Load Models** | Fetch installed Ollama models from `/api/tags`. |
+| **Test** | Check that the selected model is reachable. |
+| **Pull** | Request model download through Ollama. |
+| **Analyze Camera Now** | Manually trigger a one-shot vision check during an active print. |
+| **Treat benign uncertainty as OK** | Downgrade uncertain/no-evidence responses instead of warning loudly. |
 
 ---
 
-## AI feedback / dataset collection
+## AI feedback and false-alarm suppression
 
-When Portal AI feedback is enabled, the dashboard shows:
+Feedback buttons:
 
 - **Looks Good**
 - **Looks Bad**
 - **False Alarm**
 
-Feedback is saved to:
+Feedback records are saved to:
 
 ```text
 data/ai_feedback.jsonl
@@ -561,19 +553,18 @@ data/ai_feedback_frames/<printer_id>/
 data/ai_feedback_suppressions.json
 ```
 
-When a feedback button is clicked, cc2-dash-lite attempts to capture a fresh camera frame first. If that fails, it falls back to the latest cached vision frame. Each feedback record can include:
+When feedback is clicked, cc2-dash-lite tries to capture a fresh frame. If that fails, it falls back to the latest cached frame.
 
-- Feedback label and optional note.
-- Current printer status snapshot.
-- Current Portal AI result.
-- Latest vision result and heuristic metrics.
-- Client/UI context.
-- A stable copy of the fresh or cached frame when available.
-- An interpreted outcome: `true_positive`, `false_positive`, `false_negative`, or `true_negative`.
+Feedback is interpreted against what Portal AI believed at the time:
 
-False-positive feedback can create a temporary same-print suppression entry. This means if Portal AI warned about a similar low/severity condition on the same active G-code file and you marked it **Looks Good** or **False Alarm**, similar warnings can be downgraded for that active print until the suppression expires.
+| AI state | User feedback | Interpreted outcome |
+|---|---|---|
+| Warning | Looks Bad | True positive |
+| Warning | Looks Good / False Alarm | False positive |
+| OK | Looks Bad | False negative |
+| OK | Looks Good | True negative |
 
-This suppression layer does **not** overwrite manual heuristic threshold settings such as dark luma threshold or fine-edge density threshold. Manual settings remain the baseline.
+False-positive feedback can create a temporary suppression for similar low/severity warnings on the same active print. This helps stop repeated “same thing again” warnings without changing your manual heuristic thresholds.
 
 Review endpoints:
 
@@ -583,26 +574,161 @@ GET /api/ai/feedback/stats
 GET /api/ai/feedback/suppressions
 ```
 
-Settings live under **Settings → Portal AI** and include feedback buttons, false-alarm suppression, suppression TTL hours, and suppression max severity.
+Manual threshold values remain manual. Feedback suppression does not silently rewrite your dark-frame or fine-edge thresholds.
 
 ---
 
-## Logs
+## File Manager
 
-The Logs page reads from the in-memory console and persisted JSONL logs:
+The File Manager is available but hidden by default.
+
+Enable it here:
+
+```text
+Settings → Menu / Features → File Manager
+```
+
+Sections:
+
+| Section | Purpose |
+|---|---|
+| **Printer Files** | Stock-style local printer file list. |
+| **USB Drive** | Stock-style USB/u-disk file list with folder navigation. |
+| **Print History** | Print history records where firmware reports them. |
+| **Video List** | Timelapse/video records derived from stock history/video metadata. |
+
+Stock command IDs used include:
+
+```text
+1036  Get history task
+1037  Get history task detail
+1038  Delete history
+1044  Get file list
+1045  Get file thumbnail
+1046  Get file detail
+1047  Delete file
+1051  Get/export timelapse video list
+```
+
+> [!CAUTION]
+> The stock firmware may not reliably generate/export timelapse videos even when the stock portal shows the UI. cc2-dash-lite includes a proxy for the stock `/download` flow, but it cannot fix firmware-side export failures.
+
+---
+
+## Filament Manager / CANVAS controls
+
+The Filament Manager is available but hidden by default while real-printer behavior is tested.
+
+Enable it here:
+
+```text
+Settings → Menu / Features → Filament Manager
+```
+
+Current CANVAS/MMS features:
+
+- Read CANVAS status.
+- Display filament slot cards.
+- Display color swatches.
+- Display filament metadata where firmware reports it.
+- Display filament sensor state with improved normalization.
+- Slot layout order: **1, 4, 2, 3**.
+- Load/feed selected slot.
+- Unload selected slot.
+- Edit selected filament profile.
+- Toggle Auto Filament Refill.
+- Refresh from printer after edit/load/unload/refill changes.
+- Lock load/unload/edit controls unless the printer is idle.
+
+Stock command IDs used include:
+
+```text
+2001  Load/feed filament
+2002  Unload filament
+2003  Edit CANVAS filament info
+2004  Auto Filament Refill
+2005  Get CANVAS status
+1055  Set mono filament info
+1061  Get mono filament info
+```
+
+> [!WARNING]
+> Filament load/unload physically moves filament. Keep eyes on the printer while testing. The UI blocks these actions during active prints, but firmware behavior still deserves adult supervision and possibly a stern look.
+
+---
+
+## Stock Elegoo portal bridge
+
+Routes:
+
+```text
+/portal-fullscreen
+/portal
+/elegoo/octo_portal.html
+```
+
+Local MQTT WebSocket bridge:
+
+```text
+/ws/mqtt/<printer_id>
+```
+
+The bridge shuttles browser WebSocket MQTT frames to the printer's MQTT port, usually `1883`.
+
+The stock portal remains the fallback/reference view. If a cc2-dash-lite feature is experimental or firmware-specific, compare behavior against the stock portal.
+
+---
+
+## Themes and appearance
+
+Themes live in:
+
+```text
+cc2_dash_lite/themes.py
+```
+
+Current built-in themes:
+
+| Theme | Style |
+|---|---|
+| Octo Dark Blue | Clean dark blue dashboard |
+| Amber Terminal | Warm terminal / CRT-ish style |
+| Mainsail-ish Dark | Familiar printer-dashboard dark UI |
+| Carbon Glass | Dark translucent glass panels |
+| Toxic Green Lab | Green terminal/lab console vibe |
+| Blood Red Terminal | Red horror-terminal look |
+| Elegoo Dark | Closer to stock portal colors |
+| Klipper Blue | Blue printer-dashboard theme |
+| OLED Mono | Minimal black/white high readability |
+| Cyberpunk Magenta | Neon magenta/cyan chaos, in a good way |
+| High Contrast | Accessibility-focused contrast |
+
+Theme preview cards are available in:
+
+```text
+Setup wizard → UI step
+Settings → Theme + Fonts
+```
+
+Font stacks are CSS-based. No font files are bundled.
+
+---
+
+## Logs and diagnostics
+
+Logs page:
+
+```text
+/logs
+```
+
+Persisted log file:
 
 ```text
 data/logs/system.jsonl
 ```
 
-Filters include:
-
-- Source.
-- Level.
-- Search text.
-- Row limit.
-
-Common sources:
+Common log sources:
 
 ```text
 system
@@ -616,148 +742,47 @@ vision
 filament
 ```
 
-Portal AI watchdog changes and vision state changes are logged automatically. Vision logs can include flags such as:
+Useful diagnostics:
 
 ```text
-dark_frame
-low_contrast_frame
-light_drop_detected
-high_fine_edge_density
-fine_edge_density_jump
-telemetry_model_mismatch
+GET /health
+GET /api/version
+GET /api/status
+GET /api/ai/monitor
+GET /api/camera/status
 ```
 
 ---
 
-## File Manager
+## Safety gates and command behavior
 
-The top navigation includes **Files** only when enabled in **Settings → Menu / Features**. As of v1.2.26, File Manager is hidden by default because stock firmware timelapse/video export behavior appears inconsistent on some printers. The feature remains available for testing and future repair.
+Per-printer command permissions are configured in:
 
-The File Manager is modeled after the stock Elegoo portal and is split into four sections:
+```text
+Settings → Printer Manager
+```
 
-| Section | Purpose |
+There are two important permission layers:
+
+| Permission | Meaning |
 |---|---|
-| **Printer Files** | Printer-local G-code files using stock `GetFileList` method `1044` with `storage_media: "local"`. |
-| **USB Drive** | USB drive files and folders using stock `GetFileList` method `1044` with `storage_media: "u-disk"` plus `dir`. |
-| **Print History** | Historical G-code print jobs using stock history methods `1036` and `1037` when needed. |
-| **Video List** | Timelapse/video records derived from stock history/video metadata and export method `1051` where firmware supports it. |
+| Commands enabled | Allows normal printer command actions. |
+| Dangerous commands enabled | Allows riskier actions such as cancel/delete/start-style operations. |
 
-The backend normalizes several firmware response shapes into predictable local/USB/history/video records for the frontend. USB browsing supports folder navigation where the firmware reports directories.
-
-Timelapse download/export handling attempts to mirror the stock portal flow. cc2-dash-lite routes video downloads through:
-
-```text
-GET /api/printers/<printer_id>/timelapse/download?file_name=<printer-video-token-or-path>
-```
-
-The backend then forwards that to the printer's stock download endpoint. If the printer firmware itself does not generate or export the video correctly, cc2-dash-lite cannot fix that yet; it can only avoid dashboard-side fake 404s and expose the actual printer behavior more clearly.
-
-> [!CAUTION]
-> `Start Print`, `Delete File`, and `Delete History/Timelapse` are blocked by the backend unless that printer has dangerous commands enabled.
-
----
-
-## Filament Manager
-
-The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**. Filament is hidden by default in current builds so the CANVAS/MMS controls can be tested deliberately before being advertised as a normal menu item:
-
-```text
-/filaments
-```
-
-It mimics the stock Elegoo filament management panel using cc2-dash-lite theme cards. It reads CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape. The frontend shows selectable tray cards with color swatches, status pills, material names, brands, temperature metadata, and sensor/refill state when reported by the printer.
-
-Expected CANVAS data may include:
-
-```text
-mmsSystemName
-mmsList[] / canvas_list[]
-trayList[] / tray_list[]
-trayName / trayId / tray_id
-filamentType / filament_type
-filamentName / filament_name
-filamentColor / filament_color
-brand / vendor / serialNumber
-filamentCode / settingId
-nozzle temperature ranges when reported
-tray status
-auto_refill / auto_fill state
-```
-
-The page currently supports:
-
-- Summary tiles.
-- Selectable CANVAS tray cards, displayed in the stock-style physical order **1, 4, 2, 3**.
-- Filament color representation using the printer-reported color.
-- Filament sensor state.
-- Auto Filament Refill enable/disable using method `2004`.
-- Load/feed selected slot using stock method `2001`.
-- Unload selected slot using stock method `2002`.
-- Edit selected slot filament metadata using stock method `2003`.
-- Mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
-
-The edit dialog sends the stock-style CANVAS payload:
-
-```json
-{
-  "canvas_id": 0,
-  "tray_id": 0,
-  "brand": "ELEGOO",
-  "filament_type": "PLA",
-  "filament_name": "PLA",
-  "filament_code": "0x0000",
-  "filament_color": "#8B8F9A",
-  "filament_min_temp": 190,
-  "filament_max_temp": 230
-}
-```
-
-These controls are treated as command-enabled actions rather than dangerous print actions. The printer still needs commands enabled in **Settings → Printer Manager**. Load/feed, unload, and edit are locked unless the printer is idle, and the backend rejects them if an active print or filament/extruder operation is detected. Load/feed and unload physically move filament, so keep eyes on the printer and use the stock portal as a fallback if firmware behavior looks odd.
-
-If the Combo/CANVAS system does not report tray data yet, the page falls back to telemetry-only information and states that no filament data was available. Use **Refresh** after the printer has had time to publish telemetry.
-
-> [!NOTE]
-> Filament Manager support is still experimental and may need adjustment for firmware-specific CANVAS/MMS response shapes. The stock portal bundle has the method IDs, but firmware responses can still vary.
-
----
-
-## Stock Elegoo portal bridge
-
-The stock portal routes are:
-
-```text
-/portal-fullscreen
-/portal
-/elegoo/octo_portal.html
-```
-
-The local bridge is:
-
-```text
-/ws/mqtt/<printer_id>
-```
-
-That bridge shuttles browser WebSocket MQTT frames to the printer's TCP MQTT port, usually `1883`.
-
-The bundled stock portal is kept as the fallback and reference view. If a cc2-dash-lite feature does not yet expose something cleanly, use the stock portal button.
-
----
-
-## Commands and safety gates
-
-Current command mapping:
+Current command mapping summary:
 
 | Feature | Method / behavior |
 |---|---|
-| File Manager | `1044` file list, `1045` thumbnail, `1046` file detail, `1047` delete file, `1036` history, `1037` history detail, `1038` history delete, `1051` timelapse export, `1020` start/print action, plus proxied printer `/download` for video download |
-| Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill, `2001` load/feed, `2002` unload, `2003` edit CANVAS filament info, `1055` set mono filament info, `1061` get mono filament info |
-| Light Toggle | `1029` |
-| Pause Print | `1021` |
-| Resume Print | `1023` |
-| Cancel Print | `1022` |
-| Camera Wake/Enable | `1042` / `1054` |
-| Set Speed Preset | `1031` with params `{ "mode": 0-3 }` |
-| Analyze Camera Now | Server-side Ollama vision check |
+| File listing/history | `1036`, `1037`, `1044`, `1046`, `1051` |
+| File/history delete | `1038`, `1047` |
+| Filament Manager | `2001`, `2002`, `2003`, `2004`, `2005`, `1055`, `1061` |
+| Light toggle | `1029` |
+| Pause print | `1021` |
+| Resume print | `1023` |
+| Cancel print | `1022` |
+| Camera wake/enable | `1042` / `1054` |
+| Speed preset | `1031` with mode `0-3` |
+| Analyze Camera Now | Server-side advisory vision check only |
 
 Speed preset modes:
 
@@ -768,27 +793,19 @@ Speed preset modes:
 | `2` | Sport |
 | `3` | Ludicrous / Frenzy |
 
-By default, non-dangerous commands are enabled for newly paired printers. Dangerous commands are disabled by default. This helps prevent accidental `Cancel Print`, `Delete File`, or `Start Print` actions from a mobile tap.
+Again: Portal AI does not automatically trigger pause/cancel in this version.
 
 ---
 
-## Configuration
+## Configuration and data paths
 
-Default config path:
+Default runtime data folder:
 
 ```text
-./data/config.json
+./data/
 ```
 
-Useful environment variables:
-
-```bash
-export CC2_DATA_DIR=/path/to/data
-export CC2_CONFIG=/path/to/config.json
-export CC2_PORT=8088
-```
-
-Runtime data commonly appears under:
+Important files:
 
 ```text
 data/config.json
@@ -799,84 +816,69 @@ data/ai_feedback_frames/<printer_id>/
 data/ai_feedback_suppressions.json
 ```
 
-### Access allowlist
+Useful environment variables:
 
-The application includes a LAN allowlist guard. The default is:
+```bash
+export CC2_DATA_DIR=/path/to/data
+export CC2_CONFIG=/path/to/config.json
+export CC2_PORT=8088
+```
+
+Default access allowlist:
 
 ```text
 192.168.1.0/24
 localhost
 ```
 
-Configure this during first-run setup or later in Settings. Keep this restricted to trusted local IP ranges.
+Configure this during setup or later in Settings. Keep it restricted to trusted LAN ranges.
 
 ---
 
-## Theme and UI customization
+## Useful API endpoints
 
-Themes live in:
+General:
 
 ```text
-cc2_dash_lite/themes.py
+GET /health
+GET /api/version
+GET /api/status
 ```
 
-Included themes:
-
-- Octo Dark Blue
-- Amber Terminal
-- Mainsail-ish Dark
-- Carbon Glass
-- High Contrast
-
-Fonts are CSS font stacks only. No external font files are bundled.
-
-The runtime UI uses plain CSS and vanilla JavaScript so it can run on a Raspberry Pi without a frontend build step. A starter Tailwind config is included under `frontend/` for future builds, but Tailwind is not required to run the app.
-
----
-
-## Project layout
+Camera:
 
 ```text
-cc2-dash-lite/
-├── cc2_dash_lite/
-│   ├── main.py
-│   ├── config.py
-│   ├── printer_client.py
-│   ├── scanner.py
-│   ├── themes.py
-│   ├── logger.py
-│   ├── ai.py
-│   ├── vision.py
-│   ├── build_info.py
-│   ├── camera_proxy.py
-│   ├── feedback_learning.py
-│   ├── cc2/
-│   │   ├── client.py
-│   │   ├── commands.py
-│   │   ├── discovery.py
-│   │   ├── runtime.py
-│   │   └── state.py
-│   └── elegoo_web/
-│       ├── octo_portal.html
-│       └── cc2dash-shim.js
-├── static/
-│   ├── app.css
-│   └── app.js
-├── templates/
-│   ├── base.html
-│   ├── index.html
-│   ├── setup.html
-│   ├── settings.html
-│   ├── logs.html
-│   ├── files.html
-│   ├── filaments.html
-│   └── portal.html
-├── frontend/
-├── install.sh
-├── uninstall.sh
-├── run.sh
-├── requirements.txt
-└── README.md
+GET  /api/printers/<printer_id>/camera/stream
+GET  /api/printers/<printer_id>/camera/latest.jpg
+GET  /api/printers/<printer_id>/camera/snapshot.jpg
+GET  /api/printers/<printer_id>/camera/status
+POST /api/printers/<printer_id>/camera/restart
+```
+
+AI / vision:
+
+```text
+GET  /api/ai/monitor
+GET  /api/printers/<printer_id>/ai/status
+POST /api/printers/<printer_id>/ai/check-now
+POST /api/printers/<printer_id>/ai/feedback
+GET  /api/ai/feedback/recent
+GET  /api/ai/feedback/stats
+GET  /api/ai/feedback/suppressions
+GET  /api/printers/<printer_id>/vision/status
+POST /api/printers/<printer_id>/vision/check-now
+GET  /api/printers/<printer_id>/vision/latest.jpg
+GET  /api/vision/models
+POST /api/vision/pull
+```
+
+Stock portal bridge:
+
+```text
+GET /portal
+GET /portal-fullscreen
+GET /elegoo/octo_portal.html
+WS  /ws/mqtt/<printer_id>
 ```
 
 ---
@@ -895,7 +897,7 @@ Run:
 If using systemd:
 
 ```bash
-sudo systemctl status cc2-dash-lite
+sudo systemctl status cc2-dash-lite --no-pager
 sudo journalctl -u cc2-dash-lite -f
 ```
 
@@ -903,74 +905,86 @@ sudo journalctl -u cc2-dash-lite -f
 
 Check:
 
-1. The Pi/Linux host IP address.
-2. The port, default `8088`.
-3. Your firewall/router rules.
-4. The app access allowlist.
+1. Pi IP address.
+2. Port, default `8088`.
+3. Firewall/router rules.
+4. cc2-dash-lite access allowlist.
+5. Whether the service is running.
 
 ### Scan does not find the printer
 
 Try:
 
-1. Confirm the printer is powered on and connected to the same LAN.
-2. Confirm the dashboard host is on the same subnet.
-3. Try the direct printer IP in the setup scan box.
-4. Use manual add with printer IP, serial number, and PIN/access code.
+1. Confirm the printer is powered on.
+2. Confirm the Pi and printer are on the same LAN/subnet.
+3. Try direct printer IP in setup/manual add.
+4. Confirm printer serial/SN and access code.
 5. Check **Logs → scanner**.
 
-The scan UI only shows verified Centauri responses. A generic open web port is not enough to appear as a printer.
+The scan UI only shows verified Centauri responses. A generic open web port does not count.
 
 ### Stock portal opens but does not control the printer
 
 Check:
 
-1. Printer serial and PIN/access code.
-2. MQTT port, usually `1883`.
-3. Printer Manager command permission toggles.
-4. Browser console and **Logs → command**.
+1. Printer serial/SN.
+2. PIN/access code.
+3. MQTT port, usually `1883`.
+4. Printer Manager command toggles.
+5. Browser console.
+6. **Logs → command**.
+
+### Camera stream is flaky
+
+Try:
+
+1. Enable Camera Relay.
+2. Restart the camera relay from Settings or API.
+3. Close other direct camera viewers.
+4. Avoid opening printer `:8080` directly in multiple tabs.
+5. Check `/api/camera/status`.
 
 ### Ollama model list does not load
 
 Check:
 
-1. Ollama is running on the LAN host.
-2. The configured Ollama URL includes protocol and port, for example `http://192.168.1.24:11434`.
-3. The dashboard host can reach that IP/port.
-4. The selected model is installed or can be pulled.
+1. Ollama is running.
+2. The URL includes protocol and port, for example `http://192.168.1.24:11434`.
+3. The Pi can reach the Ollama host.
+4. The selected vision model is installed.
 
-### Vision says the wrong printer state
+### Portal AI does nothing while idle
 
-Vision models analyze still images and can misinterpret whether a printer is actively printing. cc2-dash-lite sends telemetry context with vision prompts and logs `telemetry_model_mismatch` when camera interpretation conflicts with printer status.
+That is expected. Current behavior is active-print-only monitoring. The loop still wakes lightly to check status so it can resume when a print starts, but it avoids heavy AI/vision work while idle.
 
-### File Manager or Filament Manager returns blank data
+### File Manager video download/export fails
 
-These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Filament Manager is also hidden by default while the CANVAS/MMS load/unload/edit behavior is tested against real firmware. Re-enable **Files** or **Filament** under **Settings → Menu / Features** only when testing or debugging them. Use the stock portal as the fallback, then check:
+If the stock Elegoo portal also fails, the problem is probably firmware-side. cc2-dash-lite includes the stock-style command path and download proxy, but it cannot force the printer firmware to generate a missing timelapse file.
 
-```text
-Logs → command
-Logs → filament
-Browser console
-```
+### Filament sensor says unknown
+
+The app normalizes several known stock/raw sensor paths, but firmware may report different shapes depending on mode, CANVAS state, or printer firmware. Check **Logs → filament** and compare against the stock portal.
 
 ---
 
 ## Known limitations
 
-- This project is not production-hardened.
-- Portal AI is advisory only and can produce false positives or false negatives.
-- Vision monitoring depends on camera image quality, lighting, model behavior, and Ollama performance.
-- File Manager and Filament Manager support may need firmware-specific refinement.
-- File Manager is hidden by default because some stock firmware builds appear unreliable around timelapse/video export.
-- Filament Manager is hidden by default while CANVAS/MMS load/unload/edit behavior is tested against real firmware.
-- Some stock portal command responses vary by firmware version.
-- Dangerous actions are intentionally blocked unless explicitly enabled.
-- The frontend does not currently require a Node build pipeline; the `frontend/` folder is reserved for future work.
+- Private/hobby LAN use only; not production-hardened.
+- Windows is untested.
+- AI/vision monitoring is advisory only.
+- AI does not automatically pause/cancel jobs in this version.
+- Vision checks can produce false positives and false negatives.
+- Camera quality, lighting, glare, focus, and angle matter a lot.
+- Firmware response shapes may vary by version.
+- Timelapse/video export may not work even in the stock portal.
+- File Manager and Filament Manager remain firmware-sensitive.
+- No frontend build is required, but this also means the UI is intentionally simple and dependency-light.
 
 ---
 
 ## Uninstall
 
-Remove the service while keeping config and data:
+Remove the service while keeping local data:
 
 ```bash
 ./uninstall.sh
@@ -982,254 +996,200 @@ Remove service plus `.venv` and `data/`:
 ./uninstall.sh --purge
 ```
 
-The uninstaller now checks normal systemd unit locations, disables/stops the service, removes stale unit symlinks, reloads systemd, resets failed service state, and attempts to kill leftover uvicorn processes launched from this app folder. To skip process cleanup:
-
-```bash
-./uninstall.sh --no-kill-leftovers
-```
-
 > [!CAUTION]
-> `--purge` deletes local configuration, logs, vision frames, and feedback data stored under `data/`.
+> `--purge` deletes local configuration, logs, vision frames, and AI feedback data.
+
+---
+
+## Project layout
+
+```text
+cc2-dash-lite/
+├── cc2_dash_lite/
+│   ├── __init__.py
+│   ├── ai.py
+│   ├── build_info.py
+│   ├── camera_proxy.py
+│   ├── config.py
+│   ├── feedback_learning.py
+│   ├── logger.py
+│   ├── printer_client.py
+│   ├── scanner.py
+│   ├── themes.py
+│   ├── vision.py
+│   ├── cc2/
+│   │   ├── client.py
+│   │   ├── commands.py
+│   │   ├── discovery.py
+│   │   ├── runtime.py
+│   │   └── state.py
+│   └── elegoo_web/
+│       ├── cc2dash-camera-shim.js
+│       ├── cc2dash-shim.js
+│       └── octo_portal.html
+├── static/
+│   ├── app.css
+│   └── app.js
+├── templates/
+│   ├── base.html
+│   ├── filaments.html
+│   ├── files.html
+│   ├── index.html
+│   ├── kiosk.html
+│   ├── logs.html
+│   ├── portal.html
+│   ├── settings.html
+│   └── setup.html
+├── install.sh
+├── run.sh
+├── uninstall.sh
+├── requirements.txt
+└── README.md
+```
 
 ---
 
 ## Release notes
 
-### v1.2.30
+### v1.2.31 theme expansion
 
-- Reordered Filament Manager slot cards to the stock-style physical layout: **1, 4, 2, 3**.
-- Added idle-only UI and backend guards for Filament Manager load/feed, unload, and edit operations.
-- Added post-command printer refresh after filament edit, load/unload, and Auto Filament Refill changes.
-- Tightened Auto Filament Refill to the stock method-`2004` payload shape: `{ "auto_refill": true/false }`.
-- Improved filament sensor normalization for stock `0/1` reports and alternate status paths.
+- Added six built-in themes: **Toxic Green Lab**, **Blood Red Terminal**, **Elegoo Dark**, **Klipper Blue**, **OLED Mono**, and **Cyberpunk Magenta**.
+- Added clickable theme preview cards to Settings and first-run setup.
+- Existing theme/font override behavior is preserved.
 
-### v1.2.29
+### v1.2.30 filament polish
 
-- Added stock-style CANVAS slot selection to Filament Manager.
-- Added filament color swatches and richer slot metadata display.
-- Added load/feed and unload controls using methods `2001` and `2002`.
-- Added edit filament metadata support using method `2003`.
-- Added mono-filament helper endpoints using methods `1055` and `1061`.
-- Filament Manager remains hidden by default and can be re-enabled under **Settings → Menu / Features**.
+- Reordered CANVAS slot display to **1, 4, 2, 3**.
+- Added refresh-after-action behavior for edit/load/unload/Auto Refill.
+- Locked load/feed, unload, and edit controls to idle-only behavior.
+- Added backend rejection while printing or during filament/extruder operation states.
+- Improved Auto Filament Refill behavior using the stock payload.
+- Improved filament sensor normalization.
+- Made firmware command failures louder instead of reporting fake success.
 
-### v1.2.28
+### v1.2.29 filament CANVAS controls
 
-- Collapsed **Print Status** header now shows **IDLE** when the printer is not actively printing.
-- Collapsed **Print Status** header now shows **PRINTING** plus the compact progress bar while an active print is detected.
-- Filament Manager remains available, but the top navigation item is now hidden by default and older saved configs migrate once to hide it.
+- Added stock-shaped CANVAS status, load/feed, unload, edit, and Auto Refill controls.
+- Added filament color swatches and richer slot metadata.
+- Added mono-filament helper methods where firmware exposes them.
 
-### v1.2.27
+### v1.2.28 collapsed print state + filament hidden
 
-- Normalized CC2 idle sub-status code `0` to display as **Idle** instead of **Sub 0**.
-- Added an `active_print` flag to normalized dashboard status output.
-- Portal AI and Ollama vision monitoring now pause while the printer is idle when `portal_ai.monitor_active_prints_only` is enabled, which is the default.
-- Manual **Analyze Camera Now** / vision check requests now return a skipped idle/standby result instead of grabbing frames or calling Ollama when no active print is detected.
-- Existing user-tuned heuristic thresholds are preserved.
+- Collapsed Print Status header shows **IDLE** or **PRINTING** with compact progress.
+- Filament nav item defaults hidden and can be re-enabled in Settings.
 
-### v1.2.26
+### v1.2.27 idle AI standby
 
-- File Manager remains available, but the top navigation item is now hidden by default.
-- Existing older configs are migrated once so the Files menu starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
-- This keeps the experimental stock-portal-style file/timelapse work available without advertising firmware features that may not behave consistently yet.
+- Normalized raw idle status code `Sub 0` to **Idle**.
+- Added active-print detection.
+- Portal AI/watchdog/vision monitoring now stands by when idle.
 
-### v1.2.25
+### v1.2.26 file manager hidden
 
-- Added a dashboard timelapse download proxy for stock printer `/download` URLs.
-- Video List download/export links now route through cc2-dash-lite instead of opening raw printer video tokens as dashboard paths.
-- Reduced false dashboard-side `404 Not Found` errors while still surfacing real firmware-side export/download failures.
+- File Manager nav item defaults hidden because firmware timelapse/export behavior appears inconsistent.
+- Existing stock-style file manager work remains available for later testing.
 
-### v1.2.24
+### v1.2.25 timelapse download proxy
 
-- Reworked File Manager to match stock Elegoo portal command shapes more closely.
-- Added sections for Printer Files, USB Drive, Print History, and Video List.
-- Normalized printer-local, USB, history, and timelapse/video response shapes server-side.
-- Added USB folder navigation support.
+- Added cc2-dash-lite timelapse download proxy through the printer stock `/download` handler.
+- Converted export-returned video paths/tokens into dashboard download links.
 
-### v1.2.23
+### v1.2.24 stock-style file manager
 
-- Portal AI feedback now tries fresh frame capture when feedback is clicked, with cached-frame fallback.
-- Feedback is interpreted as true positive, false positive, false negative, or true negative.
-- False-positive feedback can temporarily suppress similar low/severity warnings for the same active print.
-- Added `/api/ai/feedback/suppressions`.
-- Improved `/api/ai/feedback/stats` with outcome counts and active suppression counts.
-- Added settings for feedback buttons, false-alarm suppression, suppression TTL hours, and suppression max severity.
-- Feedback learning does not overwrite manual heuristic thresholds.
+- Reworked File Manager around stock command shapes.
+- Added Printer Files, USB Drive, Print History, and Video List sections.
 
-### v1.2.22
+### v1.2.23 feedback learning
 
-- Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
-- Removed the prefilled `123456` PIN from setup/manual-add flows.
-- Backend printer-add validation now rejects blank access codes.
+- Added fresh-frame feedback capture.
+- Added true/false positive/negative interpretation.
+- Added current-print false-alarm suppression for similar low/severity warnings.
+- Improved feedback stats and suppression API.
 
-### v1.2.21
+### v1.2.22 alphanumeric access codes
 
-- Trimmed the first-run setup header card down to only the progress bar.
-- Renamed the setup flow wording to **Configure cc2-dash** and simplified the printer discovery step to **Find printers**.
-- Removed the extra explanatory setup intro paragraph and tightened the scan button copy.
+- Updated setup/settings PIN fields to allow letters and numbers.
+- Removed prefilled default PIN.
+- Backend rejects blank access codes.
 
-### v1.2.20
+### v1.2.21 setup copy cleanup
 
-- Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
-- The camera placeholder now hides after the MJPEG stream begins loading and falls back gracefully to relay status overlays.
-- Added kiosk camera retry behavior if the browser reports a stream error.
+- Simplified first-run setup copy.
+- Reduced first card to progress-only header treatment.
 
-### v1.2.19
+### v1.2.20 kiosk camera warm-up
 
-- Added a hideable **Kiosk** nav item that opens a minimal camera-first view in a new browser tab.
-- Added Kiosk camera overlays for relay/live status, progress, Portal AI badge, ETA, state, printer name, and active file.
-- Added **Settings → Kiosk Mode** and **Settings → Menu / Features → Kiosk menu option** controls.
+- Kiosk uses faster cached status.
+- Improved camera placeholder/stream loading behavior.
 
-### v1.2.18
+### v1.2.19 kiosk mode
 
-- Added a compact Portal AI status pill to the **AI Info** accordion header when collapsed.
-- The pill shows **Looks Good**, **Something looks fishy**, or **Possible failure detected** using the current Portal AI risk.
+- Added hideable Kiosk nav item and camera-first fullscreen page.
 
-### v1.2.17
+### v1.2.18 AI header status
 
-- Added a compact live progress bar to the **Print Status** accordion header when collapsed.
-- The collapsed header shows the current print percentage while keeping the dashboard tidy.
+- Added compact Portal AI status pill to collapsed AI Info header.
 
-### v1.2.16
+### v1.2.17 collapsed progress
 
-- Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
-- Quick Actions remains collapsed by default; other primary sections start expanded unless the browser has saved preferences.
+- Added compact progress bar to collapsed Print Status header.
 
-### v1.2.15
+### v1.2.16 dashboard section split
 
-- Converted main dashboard cards to the same collapsible accordion style used by Settings.
-- Dashboard accordion open/closed states are saved per printer in browser local storage.
+- Split Camera, Print Status, AI Info, Quick Actions, and Connection into clearer collapsible sections.
 
-### v1.2.14
+### v1.2.15 dashboard accordion polish
 
-- Mobile header/build metadata cleanup.
-- Settings page accordion cleanup with global Save All / Cancel controls.
-- Advanced JSON collapsed by default with raw JSON override for Save All.
+- Added saved dashboard accordion state.
 
-### v1.2.13
+### v1.2.14 mobile header/settings cleanup
 
-- Improved Ollama vision classification rules so normal-looking prints should return `ok`, not `uncertain`.
-- Added benign uncertainty normalization for results that say `uncertain` while also reporting no visible issues.
-- Portal AI risk scoring treats low-severity uncertainty as neutral unless there is actual visual evidence or a concerning heuristic.
-- Dashboard vision card shows **looks OK · low confidence** for normalized benign uncertainty.
-- Added Settings → Portal AI → **Treat benign uncertainty as OK**.
-- Improved install/uninstall scripts for more reliable systemd update/removal and stale process cleanup.
+- Improved mobile header build chips.
+- Reworked Settings into collapsible panels with global Save All / Cancel controls.
 
-### v1.2.12
+### v1.2.13 vision sanity + service cleanup
 
-- Fixed top navigation **Portal** menu item so it opens the fullscreen Elegoo portal in a new browser tab instead of nesting the portal wrapper inside itself.
+- Improved benign-uncertainty handling for Ollama vision.
+- Improved install/uninstall systemd cleanup.
 
-### v1.2.11
+### v1.2.12 portal navigation fix
 
-- Added Camera Relay / MJPEG fanout so cc2-dash-lite keeps one upstream camera connection per printer and serves dashboard viewers, snapshots, Portal AI vision, and portal camera rewrites locally.
-- Added camera relay status, latest-frame endpoints, restart endpoint, settings, and diagnostics.
+- Portal nav opens fullscreen stock portal in a new tab instead of nesting wrappers.
 
-### v1.2.10
+### v1.2.11 camera relay
 
-- Removed informal joke-style references from source comments, UI text, and documentation.
-- Reworked `README.md` into a professional GitHub-style guide with beginner-friendly setup, feature walkthrough, safety warnings, troubleshooting, and full command/feature notes.
-- Bumped package version metadata to `1.2.10`.
+- Added MJPEG relay/fanout, cached latest-frame endpoints, and portal camera rewrite shim.
 
-### v1.2.9
+### v1.2.10 documentation/source cleanup
 
-- Added the Filament Manager page and hideable Filament navigation item.
-- Added CANVAS/MMS filament status normalization using method `2005`.
-- Added Auto Filament Refill controls using method `2004`.
-- Added README notes for Filament Manager and command mapping.
+- Reworked documentation and removed informal placeholder references.
 
-### v1.2.8
+### v1.2.1 build metadata
 
-- Reworked first-run setup into a centered card-by-card wizard.
-- Added scan, optional manual add, UI setup, access setup, Portal AI setup, and finish cards.
-- Added Ollama model load/test/pull controls inside first-run AI setup.
-- Updated documentation for the first-run flow and Printer Manager.
+- Added version/commit/branch build metadata in header, `/api/version`, and `/health`.
 
-### v1.2.7
+### v1.2.0 background watchdog
 
-- Tightened printer discovery so the scan UI only shows verified Centauri Carbon candidates from UDP method-7000 discovery.
-- Generic TCP/HTTP scan hits are treated as hidden hints instead of pairable devices.
-- Added Settings → Printer Manager with verified scan, manual add, edit/save, make default, remove, enabled/commands/dangerous toggles, and per-printer connection settings.
+- Added background Portal AI monitoring loop and `/api/ai/monitor`.
 
-### v1.2.6
+### v1.0.0 stable baseline
 
-- Dashboard quick-action buttons for **Analyze Camera Now** and **Set Speed** now use the active theme color instead of the plain secondary/card style.
-- Portal AI feedback buttons now use theme-matched colors while still visually separating good/bad/false-alarm labels.
-- AI feedback saves a richer labeled review record to `data/ai_feedback.jsonl` and can copy latest vision frames to `data/ai_feedback_frames/<printer_id>/`.
-- Added feedback review endpoints:
-  - `GET /api/ai/feedback/recent`
-  - `GET /api/ai/feedback/stats`
-
-### v1.2.5
-
-- Vision prompts include printer telemetry context before asking Ollama to classify the camera image.
-- Added a telemetry/model mismatch guard.
-- Local frame heuristics are more sensitive to lights-off tests.
-- Vision card shows luma/contrast/edge metrics.
-- Speed telemetry is shown in the Status block and telemetry grid.
-
-### v1.2.3
-
-- Settings → Portal AI has a themed Ollama model dropdown.
-- **Load Models** fetches installed models from the configured Ollama host.
-- Added **Pull** model support via Ollama `/api/pull`.
-- Dashboard hides the vision status block when Ollama vision monitoring is disabled.
-- Set Speed quick action shows a dashboard selector for Silent / Balanced / Sport / Ludicrous and sends the selected mode at click time.
-
-### v1.2.1
-
-- Header shows a small build badge near the app name, for example `v1.2.1 · commit abc1234`.
-- Added runtime build metadata detection from Git checkout or environment variables such as `CC2_DASH_GIT_COMMIT`, `GITHUB_SHA`, `CC2_DASH_GIT_BRANCH`, and `GITHUB_REF_NAME`.
-- Added `/api/version` and included build metadata in `/health`.
-
-### v1.2.0
-
-- Portal AI background watchdog task starts with the service.
-- Monitoring continues when the dashboard/browser is closed.
-- `/api/status` serves cached watchdog results when available.
-- Added Settings → Portal AI controls for background monitor enable/disable, check interval, log-on-change behavior, and minimum watchdog log level.
-- Added `/api/ai/monitor`.
-
-### v1.1.1
-
-- Portal AI adds configurable multi-color / filament-swap progress-stall grace.
-- Feedback labels are persisted to `data/ai_feedback.jsonl` for later tuning.
-
-### v1.0.0 stable checkpoint
-
-This release marked a known-good baseline before heavier feature work.
-
-Included:
-
-- First-run setup wizard with scan, PIN/access-code pairing, and saved printer configuration.
-- Bundled stock Elegoo portal and local MQTT-over-WebSocket bridge.
-- Mobile-first dashboard shell.
-- Theme/font system.
-- Configurable dashboard cards and quick-action buttons.
-- Configurable top menu features, including File Manager visibility.
-- Files route and backend endpoints retained for later refinement.
-- Raspberry Pi/Linux install, uninstall, virtualenv, and optional systemd service scripts.
-
-### v0.3.x file/timelapse notes
-
-- Files/timelapse read endpoints no longer convert printer `error_code` responses into HTTP 500s.
-- Timelapse listing loads through print history like the stock Elegoo portal; method `1051` is kept for export only.
-- USB file-list errors show a friendly message instead of crashing the Files page.
-- Timelapse tab mirrors the stock Elegoo portal Video List behavior more closely.
-- Backend filters Print History rows for timelapse records using `TimeLapseVideoStatus` 1/2 or video URL/size/duration markers.
-- Added fallback task-detail lookup using method `1037` when history rows do not include video metadata directly.
-- UI shows size, creation time, duration, generated/export-needed status, and download/export actions.
-- File Manager menu option toggle was added under **Settings → Menu / Features**.
+- First-run setup, stock portal bridge, mobile dashboard shell, themes, feature toggles, install scripts, and early file hooks.
 
 ---
 
-## Development notes
+## Development checks
 
-No frontend build step is required for normal use. For quick validation after edits:
+No frontend build step is required for normal use.
+
+After edits, useful checks are:
 
 ```bash
 python -m compileall cc2_dash_lite
 python - <<'PY'
 from jinja2 import Environment, FileSystemLoader
 from pathlib import Path
+
 env = Environment(loader=FileSystemLoader('templates'))
 for path in Path('templates').glob('*.html'):
     env.get_template(path.name)
@@ -1238,4 +1198,4 @@ PY
 node --check static/app.js
 ```
 
-The `node --check` step is optional and only checks JavaScript syntax if Node is installed.
+The Node check is optional and only verifies JavaScript syntax if Node is installed.

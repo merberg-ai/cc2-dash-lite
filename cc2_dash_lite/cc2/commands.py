@@ -81,40 +81,75 @@ def method_allowed(method: int, allow_commands: bool, allow_dangerous: bool) -> 
     return allow_commands and allow_dangerous
 
 
+def normalize_storage_media(storage_media: str | None = "local") -> str:
+    """Return the stock Elegoo portal storage-media token.
+
+    The local portal bundle uses exactly ``local`` and ``u-disk`` for the
+    printer file APIs.  Sending friendly aliases is convenient from cc2-dash,
+    but the outgoing command should stay stock-shaped because some firmware
+    builds reject unknown/extra parameters.
+    """
+    value = str(storage_media or "local").strip().lower().replace("_", "-")
+    if value in {"usb", "udisk", "u-disk", "u disk", "drive", "usb-drive"}:
+        return "u-disk"
+    if value in {"sd", "sdcard", "sd-card"}:
+        return "sd-card"
+    return "local"
+
+
+def normalize_file_dir(path: str | None = "/") -> str:
+    value = str(path or "/").strip() or "/"
+    if not value.startswith("/"):
+        value = "/" + value
+    # Stock portal keeps USB directory paths as slash-terminated folder paths.
+    if value != "/" and not value.endswith("/"):
+        value += "/"
+    return value
+
+
+def _prefix_udisk_file(filename: str, storage_media: str) -> str:
+    name = str(filename or "")
+    if normalize_storage_media(storage_media) == "u-disk" and name and not name.startswith("/"):
+        return "/" + name
+    return name
+
+
 def file_list_params(path: str = "/", storage_media: str = "local", page: int = 1, page_size: int = 50, offset: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
-    # The stock Elegoo portal sends dir/offset/limit. Older cc2-dash builds sent
-    # path/page/page_size. Send both shapes to be forgiving across firmware builds.
+    # Stock portal shape: {storage_media, optional dir, offset, limit}.
+    # Do not send path/page/page_size aliases here; strict firmware builds can
+    # answer InvalidParameter when extra keys are present.
+    media = normalize_storage_media(storage_media)
     if offset is None:
-        offset = max(0, (page - 1) * page_size)
+        offset = max(0, (int(page or 1) - 1) * int(page_size or 50))
     if limit is None:
-        limit = page_size
+        limit = int(page_size or 50)
     params: Dict[str, Any] = {
-        "storage_media": storage_media,
-        "path": path,
-        "dir": path,
-        "page": page,
-        "page_size": page_size,
-        "offset": offset,
-        "limit": limit,
+        "storage_media": media,
+        "offset": int(offset or 0),
+        "limit": int(limit or page_size or 50),
     }
-    if path in ("/", ""):
-        params.pop("dir", None)
+    dir_path = normalize_file_dir(path)
+    if media == "u-disk":
+        params["dir"] = dir_path
     return params
 
 
 def file_detail_params(filename: str, storage_media: str = "local", directory: Optional[str] = None) -> Dict[str, Any]:
-    params = {"storage_media": storage_media, "filename": filename}
-    if directory:
-        params["dir"] = directory
+    media = normalize_storage_media(storage_media)
+    params = {"storage_media": media, "filename": _prefix_udisk_file(filename, media)}
+    if directory and normalize_file_dir(directory) != "/":
+        params["dir"] = normalize_file_dir(directory)
     return params
 
 
 def file_thumbnail_params(filename: str, storage_media: str = "local") -> Dict[str, Any]:
-    return {"storage_media": storage_media, "file_name": filename}
+    media = normalize_storage_media(storage_media)
+    return {"storage_media": media, "file_name": _prefix_udisk_file(filename, media)}
 
 
 def delete_file_params(file_path: str, storage_media: str = "local") -> Dict[str, Any]:
-    return {"storage_media": storage_media, "file_path": file_path}
+    media = normalize_storage_media(storage_media)
+    return {"storage_media": media, "file_path": _prefix_udisk_file(file_path, media)}
 
 
 def start_print_params(
@@ -214,7 +249,11 @@ def history_detail_params(task_ids: list[str] | list[int] | str | int) -> Dict[s
 
 
 def timelapse_export_params(url: str) -> Dict[str, Any]:
-    return {"url": url}
+    # Stock local websocket export uses {Url: ...}; earlier MQTT-ish paths used
+    # lowercase. Send both aliases so the printer firmware can take whichever it
+    # expects without changing the UI contract.
+    value = str(url or "")
+    return {"url": value, "Url": value}
 
 
 def history_delete_params(task_ids: list[str] | list[int]) -> Dict[str, Any]:

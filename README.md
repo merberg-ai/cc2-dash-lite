@@ -1,6 +1,6 @@
 # cc2-dash-lite
 
-![Version](https://img.shields.io/badge/version-1.2.31-blue)
+![Version](https://img.shields.io/badge/version-1.2.32-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%20%2F%20Linux-green)
 ![Use](https://img.shields.io/badge/use-private%20hobbyist%20LAN-orange)
@@ -59,7 +59,7 @@ It is designed for a Raspberry Pi-style board sitting on your trusted home netwo
 Current documented version:
 
 ```text
-1.2.31 theme-expansion
+1.2.32 crt-themes
 ```
 
 Major current capabilities:
@@ -227,8 +227,14 @@ sudo apt install -y git python3 python3-venv python3-pip
 Replace the URL below with your actual GitHub repository URL if different:
 
 ```bash
-git clone https://github.com/merberg-ai/cc2-dash-lite.git
+git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
 cd cc2-dash-lite
+```
+
+Example if you cloned from your own fork:
+
+```bash
+git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
 ```
 
 ### 3. Make helper scripts executable
@@ -1044,6 +1050,12 @@ cc2-dash-lite/
 ---
 
 ## Release notes
+
+### v1.2.32 crt themes
+
+- Added two new built-in retro monitor themes: **Retro CRT Blue-Gray** and **Green Phosphor CRT**.
+- Both themes use the built-in **Retro CRT** font stack with scanline/glow styling for an old-monitor feel.
+- Theme preview cards in Settings and first-run setup now include the two new CRT-style themes.
 
 ### v1.2.31 theme expansion
 

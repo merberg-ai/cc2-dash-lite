@@ -1,5 +1,31 @@
 # cc2-dash-lite
 
+### v1.2.26 file manager hidden by default
+
+- File Manager remains available, but the top navigation item is now hidden by default because stock firmware timelapse/video export behavior appears inconsistent.
+- Existing older configs migrate once so **Files** starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
+- The stock-portal-style File Manager work from v1.2.24/v1.2.25 is preserved for later testing instead of being removed.
+
+### v1.2.25 timelapse download proxy
+
+- Added a cc2-dash-lite timelapse download proxy endpoint so Video List downloads route through the printer's stock `/download` handler instead of opening raw video tokens as local dashboard paths.
+- Export responses that return a video token/path are converted into dashboard download links.
+- This reduces fake cc2-dash `404 Not Found` errors, but the underlying printer firmware may still fail to generate/export videos.
+
+### v1.2.24 stock-style file manager pass
+
+- Reworked File Manager around the stock portal command shapes for printer files, USB files, print history, and video records.
+- Added stock-style sections for **Printer Files**, **USB Drive**, **Print History**, and **Video List**.
+- Normalized mixed firmware response shapes server-side so the frontend receives predictable file/history/video records where possible.
+
+### v1.2.23 feedback-learning pass
+
+- Portal AI feedback now tries to capture a fresh camera frame when feedback is clicked, with cached-frame fallback.
+- Feedback is interpreted as true positive, false positive, false negative, or true negative based on what Portal AI thought at the time.
+- False-positive feedback can temporarily suppress similar low/severity warnings for the same active print.
+- Added feedback suppression tracking, improved feedback stats, and settings for feedback buttons, suppression TTL, and suppression severity limits.
+- Manual heuristic threshold settings are not overwritten by feedback learning.
+
 ### v1.2.22 alphanumeric printer PIN fields
 
 - Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
@@ -76,7 +102,7 @@
 
 ## Overview
 
-**cc2-dash-lite** is a lightweight, mobile-first dashboard and local portal shell for the Elegoo Centauri Carbon 2 / CC2 ecosystem. It provides a clean LAN dashboard, printer discovery and pairing, access controls, configurable navigation, a bundled stock Elegoo portal view, file/timelapse helpers, filament/CANVAS status experiments, and optional Portal AI monitoring with Ollama vision support.
+**cc2-dash-lite** is a lightweight, mobile-first dashboard and local portal shell for the Elegoo Centauri Carbon 2 / CC2 ecosystem. It provides a clean LAN dashboard, printer discovery and pairing, access controls, configurable navigation, a bundled stock Elegoo portal view, file/timelapse helpers, filament/CANVAS status experiments, and optional Portal AI monitoring with Ollama vision support, feedback-aware false-alarm suppression, and experimental stock-style file/timelapse helpers.
 
 > [!WARNING]
 > **Personal / home / hobbyist use only.** This project is not designed, tested, or recommended for production, commercial print farms, safety-critical environments, remote unattended operation, or any situation where a failed command, missed detection, or incorrect AI result could cause damage. Use it on a trusted LAN, keep physical access to the printer, and treat all AI/vision output as advisory.
@@ -168,9 +194,10 @@ It is not trying to be a hardened production control platform. Keep the stock po
 
 ### File, timelapse, and filament tools
 
-- File Manager page for G-code files and timelapse/history video records.
+- File Manager page for printer-local files, USB files, print history, and stock-style Video List records.
 - G-code file list/detail/start/delete endpoints from the stock portal command set.
-- Timelapse/history load/export/download/delete controls where firmware allows it.
+- Timelapse/history export/download/delete controls where firmware allows it, with a dashboard download proxy for stock printer download URLs.
+- File Manager is hidden by default in the top navigation because some firmware builds appear unreliable around timelapse/video export.
 - Filament Manager page for stock-style CANVAS/MMS filament tray information.
 - Configurable File Manager, Filament Manager, and Kiosk menu visibility.
 
@@ -225,7 +252,7 @@ Settings are available under **Settings → Camera Relay / Stream Protection**. 
 - Optional Ollama vision monitoring using printer camera snapshots.
 - Configurable Ollama host, model loading, model testing, and model pull request support.
 - Local camera-frame heuristics for dark/low-contrast frames and stringing-style fine-edge warnings.
-- Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm dataset collection.
+- Portal AI feedback buttons for Looks Good / Looks Bad / False Alarm dataset collection, outcome interpretation, and same-print false-alarm suppression.
 - Filterable persisted Logs page for system, command, Portal AI, scanner, filament, and vision events.
 
 ---
@@ -264,14 +291,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.22.zip
+unzip cc2-dash-lite-1.2.26-file-manager-hidden.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.22 cc2-dash-lite
+mv cc2-dash-lite-1.2.26-file-manager-hidden cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -382,12 +409,12 @@ Primary navigation:
 |---|---|
 | **Dash** | Main status view with printer telemetry, camera, quick actions, Portal AI, and cards. |
 | **Portal** | Wrapper view for the bundled stock Elegoo portal. |
-| **Files** | Optional File Manager for G-code and timelapse/history records. |
+| **Files** | Optional File Manager for printer files, USB files, print history, and Video List records; hidden by default as of v1.2.26. |
 | **Filament** | Optional Filament Manager for CANVAS/MMS tray data. |
 | **Settings** | Theme, features, quick actions, Printer Manager, access, and Portal AI settings. |
 | **Logs** | Filterable system, command, scanner, Portal AI, filament, and vision logs. |
 
-The **Files** and **Filament** menu items can be shown or hidden in **Settings → Menu / Features**.
+The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files is hidden by default in current builds.
 
 ---
 
@@ -473,6 +500,9 @@ GET  /api/ai/monitor
 GET  /api/printers/<printer_id>/ai/status
 POST /api/printers/<printer_id>/ai/check-now
 POST /api/printers/<printer_id>/ai/feedback
+GET  /api/ai/feedback/recent
+GET  /api/ai/feedback/stats
+GET  /api/ai/feedback/suppressions
 GET  /api/printers/<printer_id>/vision/status
 GET  /api/vision/models
 POST /api/vision/pull
@@ -495,25 +525,32 @@ Feedback is saved to:
 ```text
 data/ai_feedback.jsonl
 data/ai_feedback_frames/<printer_id>/
+data/ai_feedback_suppressions.json
 ```
 
-Each feedback record can include:
+When a feedback button is clicked, cc2-dash-lite attempts to capture a fresh camera frame first. If that fails, it falls back to the latest cached vision frame. Each feedback record can include:
 
 - Feedback label and optional note.
 - Current printer status snapshot.
 - Current Portal AI result.
-- Latest vision result.
+- Latest vision result and heuristic metrics.
 - Client/UI context.
-- A stable copy of the latest vision frame when available.
+- A stable copy of the fresh or cached frame when available.
+- An interpreted outcome: `true_positive`, `false_positive`, `false_negative`, or `true_negative`.
+
+False-positive feedback can create a temporary same-print suppression entry. This means if Portal AI warned about a similar low/severity condition on the same active G-code file and you marked it **Looks Good** or **False Alarm**, similar warnings can be downgraded for that active print until the suppression expires.
+
+This suppression layer does **not** overwrite manual heuristic threshold settings such as dark luma threshold or fine-edge density threshold. Manual settings remain the baseline.
 
 Review endpoints:
 
 ```text
 GET /api/ai/feedback/recent
 GET /api/ai/feedback/stats
+GET /api/ai/feedback/suppressions
 ```
 
-Feedback currently builds a labeled dataset for later review and tuning. It does **not** automatically train, fine-tune, or adjust live scoring. That is intentional: collect examples first, review them, then use them for calibration later.
+Settings live under **Settings → Portal AI** and include feedback buttons, false-alarm suppression, suppression TTL hours, and suppression max severity.
 
 ---
 
@@ -561,16 +598,26 @@ telemetry_model_mismatch
 
 ## File Manager
 
-The top navigation includes **Files** when enabled in **Settings → Menu / Features**.
+The top navigation includes **Files** only when enabled in **Settings → Menu / Features**. As of v1.2.26, File Manager is hidden by default because stock firmware timelapse/video export behavior appears inconsistent on some printers. The feature remains available for testing and future repair.
 
-The page has two panels:
+The File Manager is modeled after the stock Elegoo portal and is split into four sections:
 
-| Panel | Purpose |
+| Section | Purpose |
 |---|---|
-| **G-code Files** | Local/USB file list, info, print, and delete. |
-| **Timelapse Videos** | Timelapse/history records, download/export/delete where firmware allows it. |
+| **Printer Files** | Printer-local G-code files using stock `GetFileList` method `1044` with `storage_media: "local"`. |
+| **USB Drive** | USB drive files and folders using stock `GetFileList` method `1044` with `storage_media: "u-disk"` plus `dir`. |
+| **Print History** | Historical G-code print jobs using stock history methods `1036` and `1037` when needed. |
+| **Video List** | Timelapse/video records derived from stock history/video metadata and export method `1051` where firmware supports it. |
 
-The File Manager uses the same CC2/Elegoo MQTT command family that the stock portal code uses. Some firmware builds return slightly different JSON shapes, so the frontend checks several known list keys before reporting that no usable list was returned.
+The backend normalizes several firmware response shapes into predictable local/USB/history/video records for the frontend. USB browsing supports folder navigation where the firmware reports directories.
+
+Timelapse download/export handling attempts to mirror the stock portal flow. cc2-dash-lite routes video downloads through:
+
+```text
+GET /api/printers/<printer_id>/timelapse/download?file_name=<printer-video-token-or-path>
+```
+
+The backend then forwards that to the printer's stock download endpoint. If the printer firmware itself does not generate or export the video correctly, cc2-dash-lite cannot fix that yet; it can only avoid dashboard-side fake 404s and expose the actual printer behavior more clearly.
 
 > [!CAUTION]
 > `Start Print`, `Delete File`, and `Delete History/Timelapse` are blocked by the backend unless that printer has dangerous commands enabled.
@@ -644,7 +691,7 @@ Current command mapping:
 
 | Feature | Method / behavior |
 |---|---|
-| File Manager | `1044`, `1046`, `1047`, `1051`, `1020`, `1038` |
+| File Manager | `1044` file list, `1045` thumbnail, `1046` file detail, `1047` delete file, `1036` history, `1037` history detail, `1038` history delete, `1051` timelapse export, `1020` start/print action, plus proxied printer `/download` for video download |
 | Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill |
 | Light Toggle | `1029` |
 | Pause Print | `1021` |
@@ -691,6 +738,7 @@ data/logs/system.jsonl
 data/vision/<printer_id>/latest.jpg
 data/ai_feedback.jsonl
 data/ai_feedback_frames/<printer_id>/
+data/ai_feedback_suppressions.json
 ```
 
 ### Access allowlist
@@ -742,6 +790,8 @@ cc2-dash-lite/
 │   ├── ai.py
 │   ├── vision.py
 │   ├── build_info.py
+│   ├── camera_proxy.py
+│   ├── feedback_learning.py
 │   ├── cc2/
 │   │   ├── client.py
 │   │   ├── commands.py
@@ -836,7 +886,7 @@ Vision models analyze still images and can misinterpret whether a printer is act
 
 ### File Manager or Filament Manager returns blank data
 
-These features depend on firmware-specific stock command responses. Use the stock portal as the fallback, then check:
+These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Re-enable **Files** under **Settings → Menu / Features** only when testing or debugging it. Use the stock portal as the fallback, then check:
 
 ```text
 Logs → command
@@ -852,6 +902,7 @@ Browser console
 - Portal AI is advisory only and can produce false positives or false negatives.
 - Vision monitoring depends on camera image quality, lighting, model behavior, and Ollama performance.
 - File Manager and Filament Manager support may need firmware-specific refinement.
+- File Manager is hidden by default because some stock firmware builds appear unreliable around timelapse/video export.
 - Some stock portal command responses vary by firmware version.
 - Dangerous actions are intentionally blocked unless explicitly enabled.
 - The frontend does not currently require a Node build pipeline; the `frontend/` folder is reserved for future work.
@@ -885,6 +936,82 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 
 ## Release notes
 
+<<<<<<< Updated upstream
+=======
+### v1.2.26
+
+- File Manager remains available, but the top navigation item is now hidden by default.
+- Existing older configs are migrated once so the Files menu starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
+- This keeps the experimental stock-portal-style file/timelapse work available without advertising firmware features that may not behave consistently yet.
+
+### v1.2.25
+
+- Added a dashboard timelapse download proxy for stock printer `/download` URLs.
+- Video List download/export links now route through cc2-dash-lite instead of opening raw printer video tokens as dashboard paths.
+- Reduced false dashboard-side `404 Not Found` errors while still surfacing real firmware-side export/download failures.
+
+### v1.2.24
+
+- Reworked File Manager to match stock Elegoo portal command shapes more closely.
+- Added sections for Printer Files, USB Drive, Print History, and Video List.
+- Normalized printer-local, USB, history, and timelapse/video response shapes server-side.
+- Added USB folder navigation support.
+
+### v1.2.23
+
+- Portal AI feedback now tries fresh frame capture when feedback is clicked, with cached-frame fallback.
+- Feedback is interpreted as true positive, false positive, false negative, or true negative.
+- False-positive feedback can temporarily suppress similar low/severity warnings for the same active print.
+- Added `/api/ai/feedback/suppressions`.
+- Improved `/api/ai/feedback/stats` with outcome counts and active suppression counts.
+- Added settings for feedback buttons, false-alarm suppression, suppression TTL hours, and suppression max severity.
+- Feedback learning does not overwrite manual heuristic thresholds.
+
+### v1.2.22
+
+- Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
+- Removed the prefilled `123456` PIN from setup/manual-add flows.
+- Backend printer-add validation now rejects blank access codes.
+
+### v1.2.21
+
+- Trimmed the first-run setup header card down to only the progress bar.
+- Renamed the setup flow wording to **Configure cc2-dash** and simplified the printer discovery step to **Find printers**.
+- Removed the extra explanatory setup intro paragraph and tightened the scan button copy.
+
+### v1.2.20
+
+- Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
+- The camera placeholder now hides after the MJPEG stream begins loading and falls back gracefully to relay status overlays.
+- Added kiosk camera retry behavior if the browser reports a stream error.
+
+### v1.2.19
+
+- Added a hideable **Kiosk** nav item that opens a minimal camera-first view in a new browser tab.
+- Added Kiosk camera overlays for relay/live status, progress, Portal AI badge, ETA, state, printer name, and active file.
+- Added **Settings → Kiosk Mode** and **Settings → Menu / Features → Kiosk menu option** controls.
+
+### v1.2.18
+
+- Added a compact Portal AI status pill to the **AI Info** accordion header when collapsed.
+- The pill shows **Looks Good**, **Something looks fishy**, or **Possible failure detected** using the current Portal AI risk.
+
+### v1.2.17
+
+- Added a compact live progress bar to the **Print Status** accordion header when collapsed.
+- The collapsed header shows the current print percentage while keeping the dashboard tidy.
+
+### v1.2.16
+
+- Split the main dashboard's combined Camera / Status card into separate collapsible sections for **Camera**, **Print Status**, and **AI Info**.
+- Quick Actions remains collapsed by default; other primary sections start expanded unless the browser has saved preferences.
+
+### v1.2.15
+
+- Converted main dashboard cards to the same collapsible accordion style used by Settings.
+- Dashboard accordion open/closed states are saved per printer in browser local storage.
+
+>>>>>>> Stashed changes
 ### v1.2.14
 
 - Mobile header/build metadata cleanup.

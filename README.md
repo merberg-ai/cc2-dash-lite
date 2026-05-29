@@ -1,5 +1,31 @@
 # cc2-dash-lite
 
+### v1.2.22 alphanumeric printer PIN fields
+
+- Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
+- Removed the prefilled `123456` PIN from setup/manual-add flows; new printers now require the user to enter the actual printer access code.
+- Backend printer-add validation now rejects blank access codes instead of silently saving the old default.
+
+### v1.2.21 setup wizard copy cleanup
+
+- Trimmed the first-run setup header card down to only the progress bar.
+- Renamed the setup flow wording from the longer intro copy to **Configure cc2-dash** internally and simplified the printer discovery step to **Find printers**.
+- Removed the extra explanatory setup intro paragraph and tightened the scan button copy.
+
+### v1.2.20 Kiosk camera warm-up fix
+
+- Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
+- The camera placeholder now hides after the MJPEG stream begins loading and falls back gracefully to relay status overlays instead of sitting forever on **Loading camera relay...**.
+- Added kiosk camera retry behavior if the browser reports a stream error.
+- Kiosk status still displays cached Portal AI/vision results when available, but it no longer blocks the camera view while waiting for new AI analysis.
+
+### v1.2.19 Kiosk mode
+
+- Added a hideable **Kiosk** nav item that opens a minimal camera-first view in a new browser tab.
+- Kiosk mode shows the connected printer, compact nav, relayed camera stream, print progress, time remaining, print state, and Portal AI health badge as camera overlays.
+- Added **Settings → Kiosk Mode** controls for overlay visibility, refresh interval, camera fit, and top nav visibility.
+- Added **Settings → Menu / Features → Kiosk menu option** so the Kiosk link can be shown or hidden like Files and Filament.
+
 ### v1.2.18 dashboard AI header status
 
 - Added a compact Portal AI status pill to the **AI Info** accordion header when that section is collapsed.
@@ -71,6 +97,7 @@
 - [Using the dashboard](#using-the-dashboard)
 - [Printer Manager](#printer-manager)
 - [Camera Relay / stream protection](#camera-relay--stream-protection)
+- [Kiosk mode](#kiosk-mode)
 - [Portal AI and Ollama vision monitoring](#portal-ai-and-ollama-vision-monitoring)
 - [AI feedback / dataset collection](#ai-feedback--dataset-collection)
 - [Logs](#logs)
@@ -145,7 +172,22 @@ It is not trying to be a hardened production control platform. Keep the stock po
 - G-code file list/detail/start/delete endpoints from the stock portal command set.
 - Timelapse/history load/export/download/delete controls where firmware allows it.
 - Filament Manager page for stock-style CANVAS/MMS filament tray information.
-- Configurable File Manager and Filament Manager menu visibility.
+- Configurable File Manager, Filament Manager, and Kiosk menu visibility.
+
+### Kiosk mode
+
+Kiosk mode is a minimal camera-first view intended for a spare tablet, wall display, phone, or second browser tab. It opens separately from the main dashboard and keeps the relayed camera stream front and center.
+
+The Kiosk camera overlay can show:
+
+- Camera relay/live status.
+- Print progress bar and percentage.
+- Portal AI badge: **Looks Good**, **Something looks fishy**, or **Possible failure detected**.
+- Estimated time remaining.
+- Current print state.
+- Printer name and active file.
+
+Settings live under **Settings → Kiosk Mode**. The top navigation link can be shown or hidden under **Settings → Menu / Features → Kiosk menu option**.
 
 ### Camera Relay / stream protection
 
@@ -222,14 +264,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.18.zip
+unzip cc2-dash-lite-1.2.22.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.18 cc2-dash-lite
+mv cc2-dash-lite-1.2.22 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

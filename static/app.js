@@ -185,6 +185,62 @@
     setText('cameraState', 'Unavailable');
   };
 
+  function setKioskCameraPlaceholder(message, mode = 'warming') {
+    const ph = $('#kioskCameraPlaceholder');
+    if (!ph) return;
+    ph.classList.remove('hidden');
+    ph.classList.toggle('camera-placeholder-warn', mode === 'warn');
+    ph.classList.toggle('camera-placeholder-bad', mode === 'bad');
+    ph.innerHTML = `<span class="spinner"></span><span>${message}</span>`;
+  }
+
+  function hideKioskCameraPlaceholder() {
+    const ph = $('#kioskCameraPlaceholder');
+    if (ph) ph.classList.add('hidden');
+  }
+
+  window.cc2KioskCameraLoaded = function () {
+    hideKioskCameraPlaceholder();
+    const cam = $('#kioskCameraStream');
+    if (cam) cam.classList.remove('hidden');
+  };
+
+  window.cc2KioskCameraFailed = function () {
+    setKioskCameraPlaceholder('Camera relay reconnecting...', 'warn');
+    const cam = $('#kioskCameraStream');
+    if (cam) {
+      cam.classList.add('hidden');
+      window.clearTimeout(window.__cc2KioskRetryTimer);
+      window.__cc2KioskRetryTimer = window.setTimeout(() => {
+        const src = cam.dataset.streamSrc || cam.getAttribute('src') || '';
+        if (!src) return;
+        const clean = src.replace(/[?&]kiosk_reload=\d+$/, '');
+        cam.src = `${clean}${clean.includes('?') ? '&' : '?'}kiosk_reload=${Date.now()}`;
+      }, 4500);
+    }
+  };
+
+  function primeKioskCamera() {
+    const cam = $('#kioskCameraStream');
+    if (!cam) return;
+    const src = cam.dataset.streamSrc || cam.getAttribute('src');
+    if (src && !cam.getAttribute('src')) {
+      cam.src = `${src}${src.includes('?') ? '&' : '?'}kiosk=1&t=${Date.now()}`;
+    }
+    setKioskCameraPlaceholder('Starting camera relay...', 'warming');
+    // MJPEG load events can be weird across browsers. Do not leave a giant
+    // spinner pinned over the stream forever; after a short grace period, let
+    // the overlay badges explain whether the relay is live/warming/stale.
+    window.setTimeout(() => {
+      const ph = $('#kioskCameraPlaceholder');
+      const relayText = ($('#kioskRelayText')?.textContent || '').toLowerCase();
+      if (ph && !ph.classList.contains('hidden') && !/down|unavailable|error/.test(relayText)) {
+        hideKioskCameraPlaceholder();
+        cam.classList.remove('hidden');
+      }
+    }, 2200);
+  }
+
   async function refreshDashboard() {
     try {
       const st = await api('/api/status');
@@ -332,6 +388,82 @@
     });
   }
 
+
+  function renderKioskCameraRelay(relay) {
+    relay = relay || {};
+    const dot = $('#kioskRelayDot');
+    const text = $('#kioskRelayText');
+    if (!dot && !text) return;
+    const ok = !!relay.ok;
+    const running = !!relay.running;
+    const stale = !!relay.stale;
+    let cls = ok ? 'good' : (running ? 'warn' : 'bad');
+    let label = ok ? 'Relay Live' : (running ? 'Relay Warming' : 'Relay Down');
+    if (stale && running) label = 'Relay Stale';
+    if (dot) dot.className = `dot ${cls}`;
+    if (text) text.textContent = label;
+  }
+
+  async function refreshKiosk() {
+    const printerId = document.body.dataset.printerId;
+    const statusUrl = printerId ? `/api/kiosk/status/${encodeURIComponent(printerId)}` : '/api/kiosk/status';
+    try {
+      const st = await api(statusUrl);
+      const progress = Math.max(0, Math.min(100, Number(st.progress || 0)));
+      const bar = $('#kioskProgressBar');
+      const text = $('#kioskProgressText');
+      if (bar) bar.style.width = `${progress}%`;
+      if (text) text.textContent = `${progress.toFixed(1)}%`;
+
+      const ai = st.portal_ai || { level: st.reachable ? 'low' : 'watch', risk: st.reachable ? 0 : 35 };
+      const aiState = summarizeAIHeaderStatus(ai, ai.vision || ai.vision_ai || st.vision_ai || {});
+      const aiBadge = $('#kioskAiBadge');
+      if (aiBadge) {
+        aiBadge.className = `kiosk-overlay-pill ai ${aiState.tone}`;
+        aiBadge.textContent = aiState.label;
+        aiBadge.title = `Portal AI: ${aiState.label}`;
+      }
+
+      const statusBadge = $('#kioskStatusBadge');
+      if (statusBadge) {
+        const status = st.status_text || st.state || 'Unknown';
+        statusBadge.textContent = `Status: ${status}`;
+        statusBadge.classList.toggle('bad', !st.reachable || /error|fail|offline/i.test(status));
+        statusBadge.classList.toggle('good', st.reachable && /print|ready|standby|idle/i.test(status));
+      }
+
+      setText('kioskTimeLeftBadge', `Left: ${st.time_left || '-'}`);
+      setText('kioskPrinterName', st.name || cfg?.app?.name || 'cc2-dash-lite');
+      setText('kioskPrinterMeta', st.host || 'connected printer');
+      setText('kioskFileName', st.file && st.file !== '-' ? st.file : (st.status_text || st.state || '-'));
+      renderKioskCameraRelay(st.camera_relay || st.cameraRelay || {});
+
+      const ph = $('#kioskCameraPlaceholder');
+      const cam = $('#kioskCameraStream');
+      const relay = st.camera_relay || st.cameraRelay || {};
+      if (cam && relay.running !== false && relay.enabled !== false) cam.classList.remove('hidden');
+      if (ph && cam && (relay.running || relay.ok || relay.upstream_connected || relay.frames_received > 0)) ph.classList.add('hidden');
+      else if (ph && relay.enabled === false) setKioskCameraPlaceholder('Camera relay disabled in settings.', 'bad');
+      else if (ph && relay.running === false) setKioskCameraPlaceholder('Camera relay is not running yet.', 'warn');
+    } catch (err) {
+      const aiBadge = $('#kioskAiBadge');
+      if (aiBadge) {
+        aiBadge.className = 'kiosk-overlay-pill ai bad';
+        aiBadge.textContent = 'Possible failure detected';
+        aiBadge.title = err.message || 'Kiosk status refresh failed';
+      }
+      setText('kioskStatusBadge', 'Status: Error');
+      console.warn(err);
+    }
+  }
+
+  function initKiosk() {
+    primeKioskCamera();
+    refreshKiosk();
+    const interval = Number(cfg?.kiosk?.refresh_interval_seconds || cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
+    setInterval(refreshKiosk, Math.max(1000, interval));
+  }
+
   function refreshConfigEditor() {
     const editor = $('#configEditor');
     if (editor && cfg) editor.value = JSON.stringify(cfg, null, 2);
@@ -345,7 +477,7 @@
         host,
         name,
         serial: serial || host,
-        access_code: accessCode || '123456',
+        access_code: accessCode || '',
         portal_url: portalUrl,
         camera_url: cameraUrl,
         set_default: options.setDefault !== false,
@@ -389,11 +521,12 @@
         ${proof ? `<span>Proof: ${esc(proof)}</span>` : `<span>Proof: Centauri discovery response</span>`}
         ${serial ? `<span>Serial: ${esc(serial)}</span>` : `<label class="field-label" for="${serialId}">Serial number</label><input id="${serialId}" class="input scan-serial" placeholder="Printer serial / SN" />`}
         <label class="field-label" for="${pinId}">Printer PIN / access code</label>
-        <input id="${pinId}" class="input scan-pin" type="password" inputmode="numeric" value="123456" placeholder="123456" />
+        <input id="${pinId}" class="input scan-pin" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Printer PIN / access code" />
         <button class="button primary full" style="margin-top:.65rem"><span class="button-label">Pair / Save This Printer</span></button>
       `;
       $('button', item).addEventListener('click', async e => {
-        const pin = $('.scan-pin', item)?.value?.trim() || '123456';
+        const pin = $('.scan-pin', item)?.value?.trim() || '';
+        if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
         const serialValue = serial || $('.scan-serial', item)?.value?.trim() || c.host;
         setButtonBusy(e.currentTarget, true, 'Pairing...');
         try {
@@ -527,8 +660,9 @@
       const host = $('#manualHost').value.trim();
       const name = $('#manualName').value.trim() || 'Centauri Carbon 2';
       const serial = $('#manualSerial').value.trim() || host;
-      const pin = $('#manualPin').value.trim() || '123456';
+      const pin = $('#manualPin').value.trim();
       if (!host) return toast('Enter a printer IP first.', 'warn');
+      if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
       setButtonBusy(manual, true, 'Pairing...');
       try {
         await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });
@@ -675,7 +809,7 @@
             <label class="inline-field"><span class="field-label">Display name</span><input class="input printer-name" value="${esc(p.name || '')}" /></label>
             <label class="inline-field"><span class="field-label">Host / IP</span><input class="input printer-host" value="${esc(p.host || '')}" /></label>
             <label class="inline-field"><span class="field-label">Serial / SN</span><input class="input printer-serial" value="${esc(p.serial || '')}" /></label>
-            <label class="inline-field"><span class="field-label">PIN / access code</span><input class="input printer-pin" type="password" placeholder="leave blank to keep saved" /></label>
+            <label class="inline-field"><span class="field-label">PIN / access code</span><input class="input printer-pin" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="leave blank to keep saved" /></label>
             <label class="inline-field"><span class="field-label">MQTT port</span><input class="input printer-port" type="number" min="1" max="65535" value="${esc(p.port || 1883)}" /></label>
           </div>
           <div class="printer-toggle-row">
@@ -823,8 +957,9 @@
       const host = $('#managerManualHost')?.value?.trim() || '';
       const name = $('#managerManualName')?.value?.trim() || 'Centauri Carbon 2';
       const serial = $('#managerManualSerial')?.value?.trim() || host;
-      const pin = $('#managerManualPin')?.value?.trim() || '123456';
+      const pin = $('#managerManualPin')?.value?.trim() || '';
       if (!host) return toast('Enter a printer IP/host first.', 'warn');
+      if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
       setButtonBusy(managerManual, true, 'Saving...');
       try {
         await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });
@@ -863,6 +998,7 @@
       cfg.features = cfg.features || {};
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
       cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
+      cfg.features.kiosk_enabled = !!$('#kioskMenuEnabled')?.checked;
       setButtonBusy(saveMenu, true, 'Saving...');
       try { await api('/api/config', { method:'POST', body:JSON.stringify({ config: cfg }) }); toast('Menu settings saved. Reloading...', 'success'); setTimeout(()=>location.reload(), 500); }
       catch (err) { toast(err.message, 'error'); }
@@ -929,6 +1065,7 @@
       cfg.dashboard = cfg.dashboard || {};
       cfg.features = cfg.features || {};
       cfg.camera_proxy = cfg.camera_proxy || {};
+      cfg.kiosk = cfg.kiosk || {};
       cfg.portal_ai = cfg.portal_ai || {};
       cfg.actions = cfg.actions || {};
       cfg.network = cfg.network || {};
@@ -949,6 +1086,17 @@
 
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
       cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;
+      cfg.features.kiosk_enabled = !!$('#kioskMenuEnabled')?.checked;
+
+      cfg.kiosk.refresh_interval_seconds = Number($('#kioskRefreshInterval')?.value || 3);
+      cfg.kiosk.camera_fit = $('#kioskCameraFit')?.value || 'contain';
+      cfg.kiosk.show_top_nav = !!$('#kioskShowTopNav')?.checked;
+      cfg.kiosk.show_printer_name = !!$('#kioskShowPrinterName')?.checked;
+      cfg.kiosk.show_camera_badge = !!$('#kioskShowCameraBadge')?.checked;
+      cfg.kiosk.show_progress = !!$('#kioskShowProgress')?.checked;
+      cfg.kiosk.show_ai_status = !!$('#kioskShowAiStatus')?.checked;
+      cfg.kiosk.show_time_left = !!$('#kioskShowTimeLeft')?.checked;
+      cfg.kiosk.show_print_status = !!$('#kioskShowPrintStatus')?.checked;
 
       cfg.camera_proxy.enabled = !!$('#cameraProxyEnabled')?.checked;
       cfg.camera_proxy.start_on_boot = !!$('#cameraProxyStartOnBoot')?.checked;
@@ -1693,6 +1841,7 @@
   }
 
   if (page === 'dashboard') initDashboard();
+  if (page === 'kiosk') initKiosk();
   if (page === 'setup') initSetup();
   if (page === 'settings') initSettings();
   if (page === 'logs') initLogs();

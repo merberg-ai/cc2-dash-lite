@@ -59,6 +59,7 @@ def public_printer_dict(cfg: PrinterConfig, include_secret: bool = False) -> dic
     data = asdict(cfg)
     data["portal_url"] = f"/portal-fullscreen?printer={cfg.id}"
     data["portal_chrome_url"] = f"/portal?printer={cfg.id}"
+    data["kiosk_url"] = f"/kiosk?printer={cfg.id}"
     data["direct_portal_url"] = f"http://{cfg.host}/"
     data["camera_url"] = f"/api/printers/{cfg.id}/camera/stream"
     data["direct_camera_url"] = f"http://{cfg.host}:8080/"
@@ -100,6 +101,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "features": {
         "file_manager_enabled": True,
         "filament_manager_enabled": True,
+        "kiosk_enabled": True,
+    },
+    "kiosk": {
+        "refresh_interval_seconds": 3,
+        "camera_fit": "contain",
+        "show_top_nav": True,
+        "show_printer_name": True,
+        "show_camera_badge": True,
+        "show_progress": True,
+        "show_ai_status": True,
+        "show_time_left": True,
+        "show_print_status": True,
     },
     "camera_proxy": {
         "enabled": True,
@@ -275,6 +288,21 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         if ai.get("vision_dark_contrast_threshold") in (None, 18, 18.0):
             ai["vision_dark_contrast_threshold"] = 22
         ai.setdefault("vision_dark_relative_drop_threshold", 18)
+    except Exception:
+        pass
+    try:
+        features = cfg.setdefault("features", {})
+        features.setdefault("kiosk_enabled", True)
+        kiosk = cfg.setdefault("kiosk", {})
+        kiosk.setdefault("refresh_interval_seconds", 3)
+        kiosk.setdefault("camera_fit", "contain")
+        kiosk.setdefault("show_top_nav", True)
+        kiosk.setdefault("show_printer_name", True)
+        kiosk.setdefault("show_camera_badge", True)
+        kiosk.setdefault("show_progress", True)
+        kiosk.setdefault("show_ai_status", True)
+        kiosk.setdefault("show_time_left", True)
+        kiosk.setdefault("show_print_status", True)
     except Exception:
         pass
     try:

@@ -885,6 +885,12 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 
 ## Release notes
 
+### v1.2.26
+
+- File Manager remains available, but the top navigation item is now hidden by default.
+- Existing older configs are migrated once so the Files menu starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
+- This keeps the experimental stock-portal-style file/timelapse work available without advertising firmware features that may not behave consistently yet.
+
 ### v1.2.14
 
 - Mobile header/build metadata cleanup.

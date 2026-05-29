@@ -69,7 +69,7 @@ def public_printer_dict(cfg: PrinterConfig, include_secret: bool = False) -> dic
     return data
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "config_version": 1,
+    "config_version": 2,
     "app": {
         "name": "cc2-dash-lite",
         "bind_host": "0.0.0.0",
@@ -99,7 +99,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "printers": {},
     "features": {
-        "file_manager_enabled": True,
+        "file_manager_enabled": False,
         "filament_manager_enabled": True,
         "kiosk_enabled": True,
     },
@@ -274,6 +274,20 @@ def deep_merge(defaults: Any, loaded: Any) -> Any:
 
 def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
     """Small compatibility fixes for older saved config files."""
+    try:
+        old_version = int(cfg.get("config_version") or 1)
+    except Exception:
+        old_version = 1
+    try:
+        # v1.2.26: keep the experimental File Manager route available, but hide
+        # its top-nav entry by default. Older saved configs inherited the prior
+        # True default, so migrate once; users can re-enable it from Settings.
+        features = cfg.setdefault("features", {})
+        if old_version < 2:
+            features["file_manager_enabled"] = False
+        cfg["config_version"] = 2
+    except Exception:
+        pass
     try:
         speed = ((cfg.get("actions") or {}).get("set_speed_preset") or {})
         speed.pop("preset_mode", None)

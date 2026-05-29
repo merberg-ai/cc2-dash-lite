@@ -1,5 +1,12 @@
 # cc2-dash-lite
 
+### v1.2.31 theme expansion pass
+
+- Added six built-in themes: **Toxic Green Lab**, **Blood Red Terminal**, **Elegoo Dark**, **Klipper Blue**, **OLED Mono**, and **Cyberpunk Magenta**.
+- Added clickable theme preview cards to **Settings → Theme + Fonts** and the first-run UI setup step.
+- Theme preview cards show each theme's rough background, panel, accent, text, and status-color feel before saving.
+- Existing theme/font override behavior is preserved; saving still writes the selected theme into `data/config.json`.
+
 ### v1.2.30 filament polish + idle guards
 
 - Reordered CANVAS slot display to match the stock portal's physical layout: **1, 4, 2, 3**.
@@ -324,14 +331,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.30-filament-polish.zip
+unzip cc2-dash-lite-1.2.31-theme-expansion.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.30-filament-polish cc2-dash-lite
+mv cc2-dash-lite-1.2.31-theme-expansion cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -827,6 +834,14 @@ Included themes:
 - Mainsail-ish Dark
 - Carbon Glass
 - High Contrast
+- Toxic Green Lab
+- Blood Red Terminal
+- Elegoo Dark
+- Klipper Blue
+- OLED Mono
+- Cyberpunk Magenta
+
+Settings and first-run setup include clickable theme preview cards so you can pick by rough visual feel instead of only using the dropdown. The preview cards do not hot-swap the whole page instantly; save the settings to reload with the selected theme.
 
 Fonts are CSS font stacks only. No external font files are bundled.
 
@@ -994,6 +1009,12 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.31
+
+- Added six additional built-in themes: Toxic Green Lab, Blood Red Terminal, Elegoo Dark, Klipper Blue, OLED Mono, and Cyberpunk Magenta.
+- Added clickable theme preview cards in Settings and setup so themes can be selected visually instead of only through the dropdown.
+- Preserved existing font override and theme-save behavior.
 
 ### v1.2.30
 

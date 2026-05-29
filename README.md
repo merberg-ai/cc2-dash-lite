@@ -936,8 +936,6 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 
 ## Release notes
 
-<<<<<<< Updated upstream
-=======
 ### v1.2.26
 
 - File Manager remains available, but the top navigation item is now hidden by default.
@@ -1011,7 +1009,6 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 - Converted main dashboard cards to the same collapsible accordion style used by Settings.
 - Dashboard accordion open/closed states are saved per printer in browser local storage.
 
->>>>>>> Stashed changes
 ### v1.2.14
 
 - Mobile header/build metadata cleanup.

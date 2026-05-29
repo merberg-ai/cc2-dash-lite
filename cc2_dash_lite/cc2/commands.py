@@ -249,11 +249,10 @@ def history_detail_params(task_ids: list[str] | list[int] | str | int) -> Dict[s
 
 
 def timelapse_export_params(url: str) -> Dict[str, Any]:
-    # Stock local websocket export uses {Url: ...}; earlier MQTT-ish paths used
-    # lowercase. Send both aliases so the printer firmware can take whichever it
-    # expects without changing the UI contract.
-    value = str(url or "")
-    return {"url": value, "Url": value}
+    # Stock local-websocket method 1051 (GetTimeLapseVideoList) sends lowercase
+    # {url: <TimeLapseVideoUrl>}. The separate SDCP command 323 used {Url}, but
+    # this app talks to method 1051 here, so keep the payload exact/picky.
+    return {"url": str(url or "")}
 
 
 def history_delete_params(task_ids: list[str] | list[int]) -> Dict[str, Any]:

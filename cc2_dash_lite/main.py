@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 import requests
@@ -2001,6 +2002,51 @@ def _absolute_printer_url(pcfg: Any, url: str) -> str:
     return f"http://{pcfg.host}{url}"
 
 
+def _download_file_name_from_token(token: str) -> str:
+    """Return the printer download file_name from a stock portal video token/URL.
+
+    The stock Elegoo portal does not open TimeLapseVideoUrl directly. It calls:
+      http://<printer>/download?X-Token=<pin>&file_name=<TimeLapseVideoUrl>
+    Some firmware builds may already return a /download?... URL; normalize both
+    shapes to the raw file_name so cc2-dash can proxy it reliably.
+    """
+    token = str(token or "").strip()
+    if not token:
+        return ""
+    try:
+        parsed = urlparse(token)
+        qs = parse_qs(parsed.query or "")
+        for key in ("file_name", "filename", "file", "name"):
+            values = qs.get(key)
+            if values:
+                return str(values[0] or "").strip()
+        # Absolute URLs that are not /download links are still usually file paths
+        # on the printer. Keep path+query minus the host so /download receives the
+        # printer's expected file token.
+        if parsed.scheme and parsed.netloc:
+            return (parsed.path or "").lstrip("/") or token
+    except Exception:
+        pass
+    return token
+
+
+def _stock_download_url(pcfg: Any, file_name: str, media: str = "local") -> str:
+    media = str(media or "local").lower()
+    endpoint = {
+        "local": "/download",
+        "u-disk": "/download/udisk",
+        "udisk": "/download/udisk",
+        "usb": "/download/udisk",
+        "sdcard": "/download/sdcard",
+        "sd-card": "/download/sdcard",
+    }.get(media, "/download")
+    return f"http://{pcfg.host}{endpoint}?X-Token={quote(str(pcfg.access_code or ''), safe='')}&file_name={quote(str(file_name or ''), safe='')}"
+
+
+def _timelapse_proxy_download_url(printer_id: str, file_name: str, media: str = "local") -> str:
+    return f"/api/printers/{quote(str(printer_id), safe='')}/timelapse/download?file_name={quote(str(file_name or ''), safe='')}&media={quote(str(media or 'local'), safe='')}"
+
+
 def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -2008,6 +2054,7 @@ def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
     name = _field(item, "task_name", "TaskName", "filename", "FileName", "name", "Name", default="")
     status = _as_int(_field(item, "time_lapse_video_status", "TimeLapseVideoStatus", "video_status", "VideoStatus", default=0), 0)
     url = str(_field(item, "time_lapse_video_url", "TimeLapseVideoUrl", "video_url", "VideoUrl", "url", "Url", default="") or "")
+    download_file_name = _download_file_name_from_token(url)
     size = _field(item, "time_lapse_video_size", "TimeLapseVideoSize", "video_size", "VideoSize", "file_size", "FileSize", "size", "Size", default=0)
     duration = _field(item, "time_lapse_video_duration", "TimeLapseVideoDuration", "video_duration", "VideoDuration", "duration", "Duration", default=0)
     begin = _field(item, "begin_time", "BeginTime", "create_time", "CreateTime", "start_time", "StartTime", "ctime", "CTime", default="")
@@ -2025,7 +2072,9 @@ def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
         "task_status": _field(item, "task_status", "TaskStatus", "status", "Status", default=""),
         "time_lapse_video_status": status,
         "time_lapse_video_url": url,
-        "download_url": _absolute_printer_url(pcfg, url),
+        "download_file_name": download_file_name,
+        "download_url": _timelapse_proxy_download_url(pcfg.id, download_file_name) if download_file_name else "",
+        "direct_download_url": _stock_download_url(pcfg, download_file_name) if download_file_name else "",
         "time_lapse_video_size": size,
         "time_lapse_video_duration": duration,
         "raw": item,
@@ -2140,9 +2189,86 @@ async def api_timelapse(printer_id: str):
     return {"ok": True, "result": result, "videos": videos, "total": len(videos)}
 
 
+@app.get("/api/printers/{printer_id}/timelapse/download")
+async def api_timelapse_download(printer_id: str, file_name: str = Query(..., min_length=1), media: str = Query("local")):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    file_name = _download_file_name_from_token(file_name)
+    if not file_name:
+        raise HTTPException(400, "Missing timelapse file name")
+
+    media_key = str(media or "local").lower()
+    endpoint = {
+        "local": "/download",
+        "u-disk": "/download/udisk",
+        "udisk": "/download/udisk",
+        "usb": "/download/udisk",
+        "sdcard": "/download/sdcard",
+        "sd-card": "/download/sdcard",
+    }.get(media_key, "/download")
+    target = f"http://{pcfg.host}{endpoint}"
+    params = {"X-Token": pcfg.access_code, "file_name": file_name}
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=8.0), follow_redirects=True)
+    try:
+        req = client.build_request("GET", target, params=params)
+        resp = await client.send(req, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(502, f"Printer timelapse download failed: {exc}") from exc
+
+    if resp.status_code >= 400:
+        text = ""
+        try:
+            text = (await resp.aread()).decode("utf-8", errors="replace")[:300]
+        except Exception:
+            text = ""
+        await resp.aclose()
+        await client.aclose()
+        detail = text or f"Printer returned HTTP {resp.status_code} for {endpoint}"
+        raise HTTPException(resp.status_code, detail)
+
+    safe_name = Path(file_name).name or "timelapse.mp4"
+    safe_name = safe_name.replace("\r", "_").replace("\n", "_")
+    headers: dict[str, str] = {}
+    for key in ("content-length", "accept-ranges", "etag", "last-modified"):
+        if key in resp.headers:
+            headers[key] = resp.headers[key]
+    headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
+    media_type = resp.headers.get("content-type") or "video/mp4"
+
+    async def body_iter():
+        try:
+            async for chunk in resp.aiter_bytes():
+                if chunk:
+                    yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(body_iter(), media_type=media_type, headers=headers)
+
+
 @app.post("/api/printers/{printer_id}/timelapse/export")
 async def api_timelapse_export(printer_id: str, body: TimelapseExportRequest):
-    return await asyncio.to_thread(_send_command, printer_id, GET_TIME_LAPSE_VIDEO_LIST, timelapse_export_params(body.url), True, 180.0)
+    token = _download_file_name_from_token(body.url)
+    data = await asyncio.to_thread(_send_command, printer_id, GET_TIME_LAPSE_VIDEO_LIST, timelapse_export_params(token), True, 180.0)
+    pcfg = _portal_target(printer_id)
+    root = _unwrap_command_payload(data)
+    returned = ""
+    if isinstance(root, dict):
+        returned = str(_field(root, "url", "Url", "download_url", "DownloadUrl", "time_lapse_video_url", "TimeLapseVideoUrl", default="") or "")
+    download_file_name = _download_file_name_from_token(returned or token)
+    if pcfg and download_file_name:
+        data["download_file_name"] = download_file_name
+        data["download_url"] = _timelapse_proxy_download_url(pcfg.id, download_file_name)
+        data["direct_download_url"] = _stock_download_url(pcfg, download_file_name)
+        if isinstance(data.get("result"), dict):
+            data["result"]["download_file_name"] = download_file_name
+            data["result"]["download_url"] = data["download_url"]
+            data["result"]["direct_download_url"] = data["direct_download_url"]
+    return data
 
 
 @app.post("/api/printers/{printer_id}/history/delete")

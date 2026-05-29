@@ -1,5 +1,37 @@
 # cc2-dash-lite
 
+### v1.2.30 filament polish + idle guards
+
+- Reordered CANVAS slot display to match the stock portal's physical layout: **1, 4, 2, 3**.
+- Filament load/feed, unload, and edit controls are now enabled only while the printer is idle; the backend also rejects those actions if the printer is printing or in a filament/extruder operation state.
+- Filament edit, load/unload, and Auto Filament Refill actions now refresh from the printer after the command so the UI reconciles with firmware state.
+- Auto Filament Refill now sends the strict stock payload `{ "auto_refill": true/false }` instead of extra aliases.
+- Filament sensor normalization now handles numeric `0/1` reports and additional stock-style/raw status paths, reducing false **unknown** display states.
+- CANVAS load/unload/edit commands now fail loudly when firmware returns an error instead of showing a fake success.
+
+### v1.2.29 filament CANVAS controls
+
+- Filament Manager now mirrors more of the stock Elegoo CANVAS tooling instead of only displaying passive tray cards.
+- Added selectable tray cards with filament color swatches and improved material/color/status metadata display.
+- Added stock-shaped CANVAS load/feed and unload actions using methods `2001` and `2002`.
+- Added filament edit support using method `2003`, including brand, type, display name, filament code, color, and nozzle temperature range.
+- Added mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
+- Filament Manager remains hidden by default under **Settings → Menu / Features** while this area is tested against real firmware behavior.
+
+### v1.2.28 collapsed print state + filament hidden by default
+
+- The collapsed **Print Status** header now shows **IDLE** when no active print is detected.
+- When a print is active, the collapsed **Print Status** header shows **PRINTING** alongside the compact progress bar.
+- Filament Manager remains available, but the top navigation item is now hidden by default until the filament/CANVAS work is ready for normal use.
+- Existing older configs migrate once so **Filament** starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
+
+### v1.2.27 idle status + active-print-only AI
+
+- Normalized idle printer sub-status code `0` so the dashboard shows **Idle** instead of raw **Sub 0**.
+- Added active-print detection to the normalized status payload.
+- Portal AI watchdog, vision monitoring, and manual vision checks now stand by while the printer is idle and resume when an active print job is detected.
+- Idle standby does not overwrite heuristic threshold settings or feedback-learning data.
+
 ### v1.2.26 file manager hidden by default
 
 - File Manager remains available, but the top navigation item is now hidden by default because stock firmware timelapse/video export behavior appears inconsistent.
@@ -199,6 +231,7 @@ It is not trying to be a hardened production control platform. Keep the stock po
 - Timelapse/history export/download/delete controls where firmware allows it, with a dashboard download proxy for stock printer download URLs.
 - File Manager is hidden by default in the top navigation because some firmware builds appear unreliable around timelapse/video export.
 - Filament Manager page for stock-style CANVAS/MMS filament tray information.
+- Filament Manager is hidden by default in the top navigation until the CANVAS/MMS behavior is polished.
 - Configurable File Manager, Filament Manager, and Kiosk menu visibility.
 
 ### Kiosk mode
@@ -291,14 +324,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.26-file-manager-hidden.zip
+unzip cc2-dash-lite-1.2.30-filament-polish.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.26-file-manager-hidden cc2-dash-lite
+mv cc2-dash-lite-1.2.30-filament-polish cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -410,11 +443,11 @@ Primary navigation:
 | **Dash** | Main status view with printer telemetry, camera, quick actions, Portal AI, and cards. |
 | **Portal** | Wrapper view for the bundled stock Elegoo portal. |
 | **Files** | Optional File Manager for printer files, USB files, print history, and Video List records; hidden by default as of v1.2.26. |
-| **Filament** | Optional Filament Manager for CANVAS/MMS tray data. |
+| **Filament** | Optional Filament Manager for CANVAS/MMS tray data; hidden by default as of v1.2.28. |
 | **Settings** | Theme, features, quick actions, Printer Manager, access, and Portal AI settings. |
 | **Logs** | Filterable system, command, scanner, Portal AI, filament, and vision logs. |
 
-The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files is hidden by default in current builds.
+The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files and Filament are hidden by default in current builds.
 
 ---
 
@@ -459,7 +492,7 @@ Current checks include:
 - Low-confidence / benign uncertainty normalization so normal-looking prints are shown as OK instead of scary-but-empty warnings.
 - Local frame checks for dark camera images and high fine-edge/stringing-style changes.
 
-The background watchdog starts with the FastAPI service and keeps evaluating configured printers on a timer, even if nobody has the dashboard open. The dashboard displays the latest cached watchdog result when available.
+The background watchdog starts with the FastAPI service, but as of v1.2.27 it only performs AI/vision monitoring while an active print job is detected. When the printer is idle, Portal AI shows an idle standby state and avoids camera/Ollama work. The dashboard displays the latest cached watchdog result when available.
 
 ### Ollama setup
 
@@ -626,40 +659,65 @@ The backend then forwards that to the printer's stock download endpoint. If the 
 
 ## Filament Manager
 
-The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**:
+The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**. Filament is hidden by default in current builds so the CANVAS/MMS controls can be tested deliberately before being advertised as a normal menu item:
 
 ```text
 /filaments
 ```
 
-It mimics the stock Elegoo filament information panel using cc2-dash-lite theme cards. It reads CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape.
+It mimics the stock Elegoo filament management panel using cc2-dash-lite theme cards. It reads CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape. The frontend shows selectable tray cards with color swatches, status pills, material names, brands, temperature metadata, and sensor/refill state when reported by the printer.
 
-Expected data may include:
+Expected CANVAS data may include:
 
 ```text
 mmsSystemName
-mmsList[]
-trayList[]
-trayName / trayId
-filamentType / filamentName / filamentColor
-vendor / serialNumber / weight / diameter
-temperature ranges when reported
+mmsList[] / canvas_list[]
+trayList[] / tray_list[]
+trayName / trayId / tray_id
+filamentType / filament_type
+filamentName / filament_name
+filamentColor / filament_color
+brand / vendor / serialNumber
+filamentCode / settingId
+nozzle temperature ranges when reported
 tray status
+auto_refill / auto_fill state
 ```
 
-The page shows:
+The page currently supports:
 
 - Summary tiles.
-- Tray cards.
+- Selectable CANVAS tray cards, displayed in the stock-style physical order **1, 4, 2, 3**.
+- Filament color representation using the printer-reported color.
 - Filament sensor state.
-- Auto Filament Refill control.
+- Auto Filament Refill enable/disable using method `2004`.
+- Load/feed selected slot using stock method `2001`.
+- Unload selected slot using stock method `2002`.
+- Edit selected slot filament metadata using stock method `2003`.
+- Mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
 
-Auto refill uses method `2004` with compatible enable/disable parameter aliases. This is treated as a normal command, not a dangerous command, but the printer still needs commands enabled in **Settings → Printer Manager**.
+The edit dialog sends the stock-style CANVAS payload:
+
+```json
+{
+  "canvas_id": 0,
+  "tray_id": 0,
+  "brand": "ELEGOO",
+  "filament_type": "PLA",
+  "filament_name": "PLA",
+  "filament_code": "0x0000",
+  "filament_color": "#8B8F9A",
+  "filament_min_temp": 190,
+  "filament_max_temp": 230
+}
+```
+
+These controls are treated as command-enabled actions rather than dangerous print actions. The printer still needs commands enabled in **Settings → Printer Manager**. Load/feed, unload, and edit are locked unless the printer is idle, and the backend rejects them if an active print or filament/extruder operation is detected. Load/feed and unload physically move filament, so keep eyes on the printer and use the stock portal as a fallback if firmware behavior looks odd.
 
 If the Combo/CANVAS system does not report tray data yet, the page falls back to telemetry-only information and states that no filament data was available. Use **Refresh** after the printer has had time to publish telemetry.
 
 > [!NOTE]
-> Filament Manager support is still experimental and may need adjustment for firmware-specific CANVAS/MMS response shapes.
+> Filament Manager support is still experimental and may need adjustment for firmware-specific CANVAS/MMS response shapes. The stock portal bundle has the method IDs, but firmware responses can still vary.
 
 ---
 
@@ -692,7 +750,7 @@ Current command mapping:
 | Feature | Method / behavior |
 |---|---|
 | File Manager | `1044` file list, `1045` thumbnail, `1046` file detail, `1047` delete file, `1036` history, `1037` history detail, `1038` history delete, `1051` timelapse export, `1020` start/print action, plus proxied printer `/download` for video download |
-| Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill |
+| Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill, `2001` load/feed, `2002` unload, `2003` edit CANVAS filament info, `1055` set mono filament info, `1061` get mono filament info |
 | Light Toggle | `1029` |
 | Pause Print | `1021` |
 | Resume Print | `1023` |
@@ -886,7 +944,7 @@ Vision models analyze still images and can misinterpret whether a printer is act
 
 ### File Manager or Filament Manager returns blank data
 
-These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Re-enable **Files** under **Settings → Menu / Features** only when testing or debugging it. Use the stock portal as the fallback, then check:
+These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Filament Manager is also hidden by default while the CANVAS/MMS load/unload/edit behavior is tested against real firmware. Re-enable **Files** or **Filament** under **Settings → Menu / Features** only when testing or debugging them. Use the stock portal as the fallback, then check:
 
 ```text
 Logs → command
@@ -903,6 +961,7 @@ Browser console
 - Vision monitoring depends on camera image quality, lighting, model behavior, and Ollama performance.
 - File Manager and Filament Manager support may need firmware-specific refinement.
 - File Manager is hidden by default because some stock firmware builds appear unreliable around timelapse/video export.
+- Filament Manager is hidden by default while CANVAS/MMS load/unload/edit behavior is tested against real firmware.
 - Some stock portal command responses vary by firmware version.
 - Dangerous actions are intentionally blocked unless explicitly enabled.
 - The frontend does not currently require a Node build pipeline; the `frontend/` folder is reserved for future work.
@@ -935,6 +994,37 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.30
+
+- Reordered Filament Manager slot cards to the stock-style physical layout: **1, 4, 2, 3**.
+- Added idle-only UI and backend guards for Filament Manager load/feed, unload, and edit operations.
+- Added post-command printer refresh after filament edit, load/unload, and Auto Filament Refill changes.
+- Tightened Auto Filament Refill to the stock method-`2004` payload shape: `{ "auto_refill": true/false }`.
+- Improved filament sensor normalization for stock `0/1` reports and alternate status paths.
+
+### v1.2.29
+
+- Added stock-style CANVAS slot selection to Filament Manager.
+- Added filament color swatches and richer slot metadata display.
+- Added load/feed and unload controls using methods `2001` and `2002`.
+- Added edit filament metadata support using method `2003`.
+- Added mono-filament helper endpoints using methods `1055` and `1061`.
+- Filament Manager remains hidden by default and can be re-enabled under **Settings → Menu / Features**.
+
+### v1.2.28
+
+- Collapsed **Print Status** header now shows **IDLE** when the printer is not actively printing.
+- Collapsed **Print Status** header now shows **PRINTING** plus the compact progress bar while an active print is detected.
+- Filament Manager remains available, but the top navigation item is now hidden by default and older saved configs migrate once to hide it.
+
+### v1.2.27
+
+- Normalized CC2 idle sub-status code `0` to display as **Idle** instead of **Sub 0**.
+- Added an `active_print` flag to normalized dashboard status output.
+- Portal AI and Ollama vision monitoring now pause while the printer is idle when `portal_ai.monitor_active_prints_only` is enabled, which is the default.
+- Manual **Analyze Camera Now** / vision check requests now return a skipped idle/standby result instead of grabbing frames or calling Ollama when no active print is detected.
+- Existing user-tuned heuristic thresholds are preserved.
 
 ### v1.2.26
 

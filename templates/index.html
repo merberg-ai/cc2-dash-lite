@@ -24,12 +24,13 @@
     </details>
 
     <details class="card dashboard-card dashboard-accordion fade-in" data-card="print_status" style="order: {{ card.order }}" open>
-      <summary class="settings-summary dashboard-summary print-status-summary">
+      <summary id="printStatusSummary" class="settings-summary dashboard-summary print-status-summary idle">
         <span class="dashboard-summary-title">Print Status</span>
         <span class="summary-progress" aria-label="Print progress">
           <span class="summary-progress-track"><span id="summaryProgressBar" class="summary-progress-bar" style="width:0%"></span></span>
           <span id="summaryProgressText" class="summary-progress-text">0.0%</span>
         </span>
+        <span id="summaryPrintState" class="summary-print-state idle" aria-label="Print state">IDLE</span>
       </summary>
       <div class="dashboard-panel-body">
         <div class="progress-shell">

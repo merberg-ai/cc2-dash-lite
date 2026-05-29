@@ -14,6 +14,11 @@ GET_FILE_THUMBNAIL = 1045
 GET_FILE_DETAIL = 1046
 GET_DISK_INFO = 1048
 GET_TIME_LAPSE_VIDEO_LIST = 1051
+SET_MONO_FILAMENT_INFO = 1055
+GET_MONO_FILAMENT_INFO = 1061
+LOAD_FILAMENT = 2001
+UNLOAD_FILAMENT = 2002
+SET_FILAMENT_INFO = 2003
 GET_CANVAS_STATUS = 2005
 
 # Semi-safe / peripheral methods
@@ -46,6 +51,7 @@ SAFE_METHODS = {
     GET_DISK_INFO,
     GET_TIME_LAPSE_VIDEO_LIST,
     GET_CANVAS_STATUS,
+    GET_MONO_FILAMENT_INFO,
     SET_LIGHT,
     ENABLE_WEBCAM,
     START_VIDEO_STREAM,
@@ -59,6 +65,10 @@ SEMI_SAFE_METHODS = {
     SET_FAN_SPEED,
     SET_PRINT_SPEED,
     SET_AUTO_REFILL,
+    SET_MONO_FILAMENT_INFO,
+    LOAD_FILAMENT,
+    UNLOAD_FILAMENT,
+    SET_FILAMENT_INFO,
 }
 
 DANGEROUS_METHODS = {
@@ -227,18 +237,64 @@ def print_speed_params(mode: int) -> Dict[str, Any]:
 
 
 def auto_refill_params(enabled: bool) -> Dict[str, Any]:
-    value = 1 if enabled else 0
-    # Firmware builds have used slightly different field names for the same
-    # switch. Send the known/obvious aliases; the printer ignores unknown keys.
+    # Stock local portal shape for method 2004:
+    # { auto_refill: <boolean> }
+    # Keep this deliberately strict; CC2 firmware has proven picky about
+    # friendly alias fields on other stock-portal commands.
+    return {"auto_refill": bool(enabled)}
+
+
+
+def _clean_filament_color(value: Any, fallback: str = "#8b8f9a") -> str:
+    color = str(value or fallback).strip() or fallback
+    if not color.startswith("#") and len(color) in (3, 6):
+        color = "#" + color
+    return color
+
+
+def filament_motion_params(canvas_id: int | str = 0, tray_id: int | str = 0) -> Dict[str, Any]:
+    # Stock local portal shape for method 2001/2002:
+    # { canvas_id: <number>, tray_id: <number> }
     return {
-        "enable": bool(enabled),
-        "enabled": bool(enabled),
-        "auto_refill": value,
-        "autoRefill": value,
-        "status": value,
-        "switch": value,
+        "canvas_id": int(canvas_id or 0),
+        "tray_id": int(tray_id or 0),
     }
 
+
+def filament_info_params(data: Dict[str, Any]) -> Dict[str, Any]:
+    # Stock local portal shape for method 2003:
+    # { canvas_id, tray_id, brand, filament_type, filament_name, filament_code,
+    #   filament_color, filament_min_temp, filament_max_temp }
+    name = str(data.get("filament_name") or data.get("filamentName") or data.get("name") or "PLA").strip() or "PLA"
+    ftype = str(data.get("filament_type") or data.get("filamentType") or data.get("type") or name.split()[0] or "PLA").strip()
+    color = _clean_filament_color(data.get("filament_color") or data.get("filamentColor") or data.get("color"))
+    brand = str(data.get("brand") or data.get("vendor") or "ELEGOO").strip() or "ELEGOO"
+    try:
+        min_temp = int(data.get("filament_min_temp") or data.get("min_nozzle_temp") or data.get("minNozzleTemp") or 190)
+    except Exception:
+        min_temp = 190
+    try:
+        max_temp = int(data.get("filament_max_temp") or data.get("max_nozzle_temp") or data.get("maxNozzleTemp") or 230)
+    except Exception:
+        max_temp = 230
+    return {
+        "canvas_id": int(data.get("canvas_id") or data.get("canvasId") or 0),
+        "tray_id": int(data.get("tray_id") or data.get("trayId") or 0),
+        "brand": brand,
+        "filament_type": ftype,
+        "filament_name": name,
+        "filament_code": str(data.get("filament_code") or data.get("filamentCode") or data.get("setting_id") or data.get("settingId") or ""),
+        "filament_color": color,
+        "filament_min_temp": min_temp,
+        "filament_max_temp": max_temp,
+    }
+
+
+def mono_filament_info_params(data: Dict[str, Any]) -> Dict[str, Any]:
+    out = filament_info_params(data)
+    out["canvas_id"] = 0
+    out["tray_id"] = 0
+    return out
 
 def history_detail_params(task_ids: list[str] | list[int] | str | int) -> Dict[str, Any]:
     if not isinstance(task_ids, list):

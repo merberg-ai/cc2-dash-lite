@@ -164,6 +164,11 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "multi_color_progress_stuck_minutes": 30,
         "stale_status_seconds": 75,
         "feedback_enabled": True,
+        "feedback_suppression_enabled": True,
+        "feedback_suppression_ttl_hours": 18,
+        "feedback_suppression_max_severity": 65,
+        "feedback_suppression_include_camera": False,
+        "feedback_threshold_auto_tuning_enabled": False,
         "auto_pause_enabled": False,
         "auto_pause_threshold": 90,
         "require_multiple_bad_checks": 3
@@ -310,6 +315,11 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         ai.setdefault("vision_treat_benign_uncertain_as_ok", True)
         ai.setdefault("vision_benign_uncertain_max_severity", 25)
         ai.setdefault("vision_uncertain_risk_severity_threshold", 35)
+        ai.setdefault("feedback_suppression_enabled", True)
+        ai.setdefault("feedback_suppression_ttl_hours", 18)
+        ai.setdefault("feedback_suppression_max_severity", 65)
+        ai.setdefault("feedback_suppression_include_camera", False)
+        ai.setdefault("feedback_threshold_auto_tuning_enabled", False)
         old_prompt = "You are monitoring a 3D printer camera image. Return JSON only with visual_state, failure_types, confidence, severity, summary, and recommended_action. Be conservative and do not treat normal supports, purge towers, brims, skirts, infill, filament swaps, or multicolor purge waste as failure unless clearly abnormal."
         current_prompt = str(ai.get("vision_prompt") or "").strip()
         if not current_prompt or current_prompt == old_prompt:

@@ -77,6 +77,12 @@ from .cc2.state import seconds_to_hms
 from .ai import portal_ai
 from .build_info import get_build_info
 from .camera_proxy import camera_proxy_config, camera_relays, rewrite_camera_urls
+from .feedback_learning import (
+    current_suppressions,
+    feedback_stats,
+    interpret_feedback,
+    record_feedback_suppression,
+)
 from .vision import vision_monitor
 
 app = FastAPI(title="cc2-dash-lite", version=__version__)
@@ -1395,7 +1401,7 @@ def _trim_raw_status(status: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _copy_feedback_frame(printer_id: str, label: str) -> dict[str, Any] | None:
-    """Copy the latest vision frame into a stable feedback dataset folder."""
+    """Fallback: copy the latest vision frame into the feedback dataset folder."""
     try:
         src = vision_monitor.latest_frame_path(printer_id)
         if not src.exists():
@@ -1408,13 +1414,27 @@ def _copy_feedback_frame(printer_id: str, label: str) -> dict[str, Any] | None:
         shutil.copy2(src, dest)
         return {
             "captured": True,
+            "fresh": False,
+            "source": "cached_latest_frame_fallback",
             "source_path": str(src),
             "path": str(dest),
             "relative_path": str(dest.relative_to(DATA_DIR)) if DATA_DIR in dest.parents else str(dest),
             "bytes": dest.stat().st_size,
         }
     except Exception as exc:
-        return {"captured": False, "error": str(exc)}
+        return {"captured": False, "fresh": False, "error": str(exc)}
+
+
+def _capture_feedback_frame(printer_id: str, printer: dict[str, Any], cfg: dict[str, Any], label: str) -> dict[str, Any] | None:
+    """Prefer a fresh camera capture for feedback; fall back to latest.jpg if needed."""
+    try:
+        return vision_monitor.capture_feedback_frame(printer_id, printer_dict_to_config(printer_id, printer), cfg, label)
+    except Exception as exc:
+        fallback = _copy_feedback_frame(printer_id, label)
+        if fallback:
+            fallback.setdefault("fresh_capture_error", str(exc))
+            return fallback
+        return {"captured": False, "fresh": False, "error": str(exc)}
 
 
 def _feedback_kind(label: str) -> str:
@@ -1464,31 +1484,32 @@ async def api_ai_feedback_recent(limit: int = Query(50, ge=1, le=500)):
 @app.get("/api/ai/feedback/stats")
 async def api_ai_feedback_stats(limit: int = Query(500, ge=1, le=2000)):
     rows = _read_feedback_rows(limit)
-    counts: dict[str, int] = {}
-    kinds: dict[str, int] = {}
-    frame_count = 0
-    for row in rows:
-        label = str(row.get("label") or "unknown")
-        counts[label] = counts.get(label, 0) + 1
-        snap = row.get("snapshot") if isinstance(row.get("snapshot"), dict) else {}
-        kind = str(snap.get("kind") or _feedback_kind(label))
-        kinds[kind] = kinds.get(kind, 0) + 1
-        frame = snap.get("frame") if isinstance(snap.get("frame"), dict) else {}
-        if frame.get("captured"):
-            frame_count += 1
+    stats = feedback_stats(rows)
     return {
         "ok": True,
         "total": len(rows),
-        "labels": counts,
-        "kinds": kinds,
-        "frames": frame_count,
-        "used_for_live_decisions": False,
-        "note": "Feedback currently builds a labeled review dataset; it does not auto-train or auto-tune live scoring yet.",
+        "labels": stats.get("labels", {}),
+        "kinds": stats.get("kinds", {}),
+        "outcomes": stats.get("outcomes", {}),
+        "printers": stats.get("printers", {}),
+        "frames": stats.get("frames", 0),
+        "active_suppressions": stats.get("suppressions", 0),
+        "used_for_live_decisions": True,
+        "live_decision_use": "false-positive feedback can suppress similar low/severity warnings for the current active print only",
+        "threshold_auto_tuning": False,
+        "note": "Feedback is used for review data, confusion-matrix stats, and temporary same-print false-alarm suppression. It does not overwrite heuristic threshold settings.",
     }
+
+
+@app.get("/api/ai/feedback/suppressions")
+async def api_ai_feedback_suppressions(printer_id: str | None = None):
+    items = current_suppressions(printer_id)
+    return {"ok": True, "count": len(items), "suppressions": items}
 
 @app.post("/api/printers/{printer_id}/ai/feedback")
 async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
     cfg = load_config()
+    ai_cfg = cfg.get("portal_ai", {}) or {}
     printer = cfg.get("printers", {}).get(printer_id)
     if not printer:
         raise HTTPException(status_code=404, detail="Printer not configured")
@@ -1498,9 +1519,21 @@ async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
     status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False)
     portal_cached = portal_ai.cached_result(printer_id) or status.get("portal_ai")
     vision_cached = vision_monitor.cached_result(printer_id) or status.get("vision_ai") or (portal_cached or {}).get("vision")
-    frame_info = _copy_feedback_frame(printer_id, body.label)
+    frame_info = _capture_feedback_frame(printer_id, printer, cfg, body.label)
+    fresh_heuristics = (frame_info or {}).pop("heuristics", None) if isinstance(frame_info, dict) else None
+    interpretation = interpret_feedback(body.label, portal_cached, vision_cached)
+    suppression = record_feedback_suppression(
+        printer_id,
+        body.label,
+        interpretation,
+        status,
+        portal_cached,
+        vision_cached,
+        fresh_heuristics=fresh_heuristics,
+        ai_cfg=ai_cfg,
+    )
     training_snapshot = {
-        "schema": "cc2-ai-feedback-v2",
+        "schema": "cc2-ai-feedback-v3",
         "label": str(body.label or "unknown"),
         "kind": _feedback_kind(body.label),
         "note": str(body.note or ""),
@@ -1509,6 +1542,9 @@ async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
         "status": _trim_raw_status(status),
         "portal_ai": portal_cached or {},
         "vision": vision_cached or {},
+        "fresh_heuristics": fresh_heuristics or {},
+        "interpretation": interpretation,
+        "suppression": suppression,
         "frame": frame_info,
         "client_context": body.context or {},
         "raw_snapshot_summary": {
@@ -1518,13 +1554,17 @@ async def api_ai_feedback(printer_id: str, body: AIFeedbackRequest):
         },
         "training_use": {
             "dataset_ready": bool(frame_info and frame_info.get("captured")),
-            "used_for_live_decisions": False,
-            "note": "Saved as labeled review data. Live scoring does not auto-tune from feedback yet.",
+            "used_for_live_decisions": bool(suppression),
+            "threshold_auto_tuning": False,
+            "suppression_active": bool(suppression),
+            "note": "Saved as labeled review data. False-positive feedback may suppress similar low/severity warnings for this active print only. Heuristic thresholds are not overwritten.",
         },
     }
     row = portal_ai.feedback(printer_id, body.label, body.note, training_snapshot)
-    log("info", f"Portal AI feedback saved: {body.label}; frame={'yes' if frame_info and frame_info.get('captured') else 'no'}", "portal_ai", printer=printer_id, label=body.label, frame=(frame_info or {}).get("relative_path"))
-    return {"ok": True, "feedback": row, "frame": frame_info, "training": training_snapshot.get("training_use")}
+    outcome = interpretation.get("outcome")
+    sup_msg = "; suppression=active" if suppression else ""
+    log("info", f"Portal AI feedback saved: {body.label} ({outcome}); frame={'yes' if frame_info and frame_info.get('captured') else 'no'}{sup_msg}", "portal_ai", printer=printer_id, label=body.label, outcome=outcome, frame=(frame_info or {}).get("relative_path"))
+    return {"ok": True, "feedback": row, "frame": frame_info, "training": training_snapshot.get("training_use"), "interpretation": interpretation, "suppression": suppression}
 
 
 @app.get("/api/printers/{printer_id}/status")

@@ -17,6 +17,7 @@ except Exception:  # Pillow is optional at import time; requirements installs it
 
 from .camera_proxy import camera_proxy_config, camera_relays
 from .config import DATA_DIR, PrinterConfig
+from .feedback_learning import apply_feedback_suppression
 from .logger import log
 
 DEFAULT_VISION_PROMPT = """You are monitoring a 3D printer camera image.
@@ -263,6 +264,37 @@ class VisionMonitor:
             "saved_path": str(saved_path) if saved_path else None,
             "latest_url": f"/api/printers/{printer_id}/vision/latest.jpg?ts={int(time.time())}",
             "bytes": len(frame),
+        }
+
+    def capture_feedback_frame(self, printer_id: str, pcfg: PrinterConfig, cfg: dict[str, Any], label: str = "feedback") -> dict[str, Any]:
+        """Grab a fresh camera frame specifically for a feedback click.
+
+        The regular watchdog may have a cached/latest frame that is minutes old. For
+        training data, the frame should represent what the user is seeing when they
+        click Looks Good / Looks Bad / False Alarm. This method updates latest.jpg,
+        runs the same local heuristics on the fresh frame, and stores a stable copy
+        under data/ai_feedback_frames/.
+        """
+        ai_cfg = cfg.get("portal_ai", {}) or {}
+        root = DATA_DIR / "ai_feedback_frames" / printer_id
+        root.mkdir(parents=True, exist_ok=True)
+        safe_label = "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in str(label or "feedback")).strip("-") or "feedback"
+        stem = f"{_now_label()}_{safe_label}_{int(time.time() * 1000) % 100000:05d}"
+        dest = root / f"{stem}.jpg"
+        frame = self._grab_frame(pcfg, timeout=_as_float(ai_cfg.get("vision_frame_timeout_seconds"), 8.0), app_cfg=cfg, printer_id=printer_id)
+        latest_info = self._save_frame(printer_id, frame, suspicious=False, store_suspicious_only=True, max_saved=_as_int(ai_cfg.get("vision_max_saved_frames"), 50))
+        dest.write_bytes(frame)
+        heuristics = self._analyze_frame(printer_id, frame, ai_cfg)
+        return {
+            "captured": True,
+            "fresh": True,
+            "source": "fresh_camera_capture",
+            "path": str(dest),
+            "relative_path": str(dest.relative_to(DATA_DIR)) if DATA_DIR in dest.parents else str(dest),
+            "bytes": len(frame),
+            "latest_path": latest_info.get("latest_path"),
+            "latest_url": latest_info.get("latest_url"),
+            "heuristics": heuristics,
         }
 
     def _analyze_frame(self, printer_id: str, frame: bytes, ai_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -741,6 +773,7 @@ class VisionMonitor:
             result = self._apply_heuristics(result, heuristics, ai_cfg)
             result = self._apply_telemetry_guard(result, status)
             result = self._normalize_benign_uncertainty(result, ai_cfg)
+            result = apply_feedback_suppression(printer_id, result, status, ai_cfg)
             confidence_threshold = _as_int(ai_cfg.get("vision_confidence_threshold"), 70)
             severity_threshold = _as_int(ai_cfg.get("vision_severity_threshold"), 60)
             suspicious = (
@@ -752,6 +785,8 @@ class VisionMonitor:
                 suspicious = True
             if result.get("heuristics", {}).get("possible_stringing") and result["visual_state"] in {"uncertain", "possible_failure"}:
                 suspicious = suspicious or bool(ai_cfg.get("vision_heuristic_warnings_count_as_bad", True))
+            if result.get("feedback_suppressed"):
+                suspicious = False
             if suspicious:
                 state["consecutive_bad"] = int(state.get("consecutive_bad") or 0) + 1
             elif result["visual_state"] == "ok":

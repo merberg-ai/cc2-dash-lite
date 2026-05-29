@@ -1,5 +1,14 @@
 # cc2-dash-lite
 
+### v1.2.29 filament CANVAS controls
+
+- Filament Manager now mirrors more of the stock Elegoo CANVAS tooling instead of only displaying passive tray cards.
+- Added selectable tray cards with filament color swatches and improved material/color/status metadata display.
+- Added stock-shaped CANVAS load/feed and unload actions using methods `2001` and `2002`.
+- Added filament edit support using method `2003`, including brand, type, display name, filament code, color, and nozzle temperature range.
+- Added mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
+- Filament Manager remains hidden by default under **Settings → Menu / Features** while this area is tested against real firmware behavior.
+
 ### v1.2.28 collapsed print state + filament hidden by default
 
 - The collapsed **Print Status** header now shows **IDLE** when no active print is detected.
@@ -306,14 +315,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.28-status-header-filament-hidden.zip
+unzip cc2-dash-lite-1.2.29-filament-canvas-controls.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.28-status-header-filament-hidden cc2-dash-lite
+mv cc2-dash-lite-1.2.29-status-header-filament-hidden cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -641,40 +650,65 @@ The backend then forwards that to the printer's stock download endpoint. If the 
 
 ## Filament Manager
 
-The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**. As of v1.2.28, Filament is hidden by default because this area is still experimental and planned for the next round of work:
+The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**. Filament is hidden by default in current builds so the CANVAS/MMS controls can be tested deliberately before being advertised as a normal menu item:
 
 ```text
 /filaments
 ```
 
-It mimics the stock Elegoo filament information panel using cc2-dash-lite theme cards. It reads CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape.
+It mimics the stock Elegoo filament management panel using cc2-dash-lite theme cards. It reads CC2/CANVAS filament data from the local MQTT command/status path, primarily method `2005` (`GET_CANVAS_STATUS`), then normalizes the stock-style object shape. The frontend shows selectable tray cards with color swatches, status pills, material names, brands, temperature metadata, and sensor/refill state when reported by the printer.
 
-Expected data may include:
+Expected CANVAS data may include:
 
 ```text
 mmsSystemName
-mmsList[]
-trayList[]
-trayName / trayId
-filamentType / filamentName / filamentColor
-vendor / serialNumber / weight / diameter
-temperature ranges when reported
+mmsList[] / canvas_list[]
+trayList[] / tray_list[]
+trayName / trayId / tray_id
+filamentType / filament_type
+filamentName / filament_name
+filamentColor / filament_color
+brand / vendor / serialNumber
+filamentCode / settingId
+nozzle temperature ranges when reported
 tray status
+auto_refill / auto_fill state
 ```
 
-The page shows:
+The page currently supports:
 
 - Summary tiles.
-- Tray cards.
+- Selectable CANVAS tray cards.
+- Filament color representation using the printer-reported color.
 - Filament sensor state.
-- Auto Filament Refill control.
+- Auto Filament Refill enable/disable using method `2004`.
+- Load/feed selected slot using stock method `2001`.
+- Unload selected slot using stock method `2002`.
+- Edit selected slot filament metadata using stock method `2003`.
+- Mono-filament helper endpoints using stock methods `1055` and `1061` for firmware paths that expose single-spool filament data.
 
-Auto refill uses method `2004` with compatible enable/disable parameter aliases. This is treated as a normal command, not a dangerous command, but the printer still needs commands enabled in **Settings → Printer Manager**.
+The edit dialog sends the stock-style CANVAS payload:
+
+```json
+{
+  "canvas_id": 0,
+  "tray_id": 0,
+  "brand": "ELEGOO",
+  "filament_type": "PLA",
+  "filament_name": "PLA",
+  "filament_code": "0x0000",
+  "filament_color": "#8B8F9A",
+  "filament_min_temp": 190,
+  "filament_max_temp": 230
+}
+```
+
+These controls are treated as command-enabled actions rather than dangerous print actions. The printer still needs commands enabled in **Settings → Printer Manager**. Load/feed and unload physically move filament, so keep eyes on the printer and use the stock portal as a fallback if firmware behavior looks odd.
 
 If the Combo/CANVAS system does not report tray data yet, the page falls back to telemetry-only information and states that no filament data was available. Use **Refresh** after the printer has had time to publish telemetry.
 
 > [!NOTE]
-> Filament Manager support is still experimental and may need adjustment for firmware-specific CANVAS/MMS response shapes.
+> Filament Manager support is still experimental and may need adjustment for firmware-specific CANVAS/MMS response shapes. The stock portal bundle has the method IDs, but firmware responses can still vary.
 
 ---
 
@@ -707,7 +741,7 @@ Current command mapping:
 | Feature | Method / behavior |
 |---|---|
 | File Manager | `1044` file list, `1045` thumbnail, `1046` file detail, `1047` delete file, `1036` history, `1037` history detail, `1038` history delete, `1051` timelapse export, `1020` start/print action, plus proxied printer `/download` for video download |
-| Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill |
+| Filament Manager | `2005` CANVAS status, `2004` Auto Filament Refill, `2001` load/feed, `2002` unload, `2003` edit CANVAS filament info, `1055` set mono filament info, `1061` get mono filament info |
 | Light Toggle | `1029` |
 | Pause Print | `1021` |
 | Resume Print | `1023` |
@@ -901,7 +935,7 @@ Vision models analyze still images and can misinterpret whether a printer is act
 
 ### File Manager or Filament Manager returns blank data
 
-These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Filament Manager is also hidden by default while the CANVAS/MMS support is still being refined. Re-enable **Files** or **Filament** under **Settings → Menu / Features** only when testing or debugging them. Use the stock portal as the fallback, then check:
+These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Filament Manager is also hidden by default while the CANVAS/MMS load/unload/edit behavior is tested against real firmware. Re-enable **Files** or **Filament** under **Settings → Menu / Features** only when testing or debugging them. Use the stock portal as the fallback, then check:
 
 ```text
 Logs → command
@@ -918,7 +952,7 @@ Browser console
 - Vision monitoring depends on camera image quality, lighting, model behavior, and Ollama performance.
 - File Manager and Filament Manager support may need firmware-specific refinement.
 - File Manager is hidden by default because some stock firmware builds appear unreliable around timelapse/video export.
-- Filament Manager is hidden by default until the CANVAS/MMS behavior is polished.
+- Filament Manager is hidden by default while CANVAS/MMS load/unload/edit behavior is tested against real firmware.
 - Some stock portal command responses vary by firmware version.
 - Dangerous actions are intentionally blocked unless explicitly enabled.
 - The frontend does not currently require a Node build pipeline; the `frontend/` folder is reserved for future work.
@@ -951,6 +985,15 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.29
+
+- Added stock-style CANVAS slot selection to Filament Manager.
+- Added filament color swatches and richer slot metadata display.
+- Added load/feed and unload controls using methods `2001` and `2002`.
+- Added edit filament metadata support using method `2003`.
+- Added mono-filament helper endpoints using methods `1055` and `1061`.
+- Filament Manager remains hidden by default and can be re-enabled under **Settings → Menu / Features**.
 
 ### v1.2.28
 

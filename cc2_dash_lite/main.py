@@ -40,6 +40,7 @@ from .cc2.commands import (
     DELETE_FILE,
     ENABLE_WEBCAM,
     GET_CANVAS_STATUS,
+    GET_MONO_FILAMENT_INFO,
     GET_DISK_INFO,
     GET_FILE_DETAIL,
     GET_FILE_LIST,
@@ -47,12 +48,16 @@ from .cc2.commands import (
     GET_HISTORY_TASK,
     GET_HISTORY_TASK_DETAIL,
     GET_TIME_LAPSE_VIDEO_LIST,
+    LOAD_FILAMENT,
+    SET_FILAMENT_INFO,
+    SET_MONO_FILAMENT_INFO,
     PAUSE_PRINT,
     RESUME_PRINT,
     START_PRINT,
     HISTORY_DELETE,
     SET_LIGHT,
     SET_AUTO_REFILL,
+    UNLOAD_FILAMENT,
     SET_PRINT_SPEED,
     START_VIDEO_STREAM,
     STOP_PRINT,
@@ -67,6 +72,9 @@ from .cc2.commands import (
     start_print_params,
     timelapse_export_params,
     auto_refill_params,
+    filament_info_params,
+    filament_motion_params,
+    mono_filament_info_params,
     light_params,
     method_allowed,
     print_speed_params,
@@ -284,9 +292,9 @@ def _find_filament_root(node: Any, depth: int = 0) -> dict[str, Any] | None:
     if depth > 6:
         return None
     if isinstance(node, dict):
-        if any(k in node for k in ("mmsList", "MmsList", "mms_list", "trayList", "TrayList", "tray_list")):
+        if any(k in node for k in ("mmsList", "MmsList", "mms_list", "canvasList", "canvas_list", "CanvasList", "trayList", "TrayList", "tray_list")):
             return node
-        preferred = ["canvas", "mmsInfo", "mms_info", "mms", "ams", "filament", "filaments", "result", "data"]
+        preferred = ["canvas", "canvas_info", "canvasInfo", "mmsInfo", "mms_info", "mms", "ams", "filament", "filaments", "result", "data"]
         for key in preferred:
             if key in node:
                 found = _find_filament_root(node[key], depth + 1)
@@ -334,38 +342,46 @@ def _color_value(value: Any) -> str:
 
 
 def _normalize_tray(tray: dict[str, Any], mms_id: str = "", index: int = 0) -> dict[str, Any]:
-    status_raw = _dig(tray, "status", "trayStatus", "TrayStatus")
+    status_raw = _dig(tray, "status", "trayStatus", "TrayStatus", "state", "tray_state")
     try:
         status_code = int(float(status_raw)) if status_raw not in (None, "") else None
     except Exception:
         status_code = None
-    tray_id = _dig(tray, "trayId", "id", "Id", default=str(index + 1))
-    name = _dig(tray, "trayName", "name", "Name", default=f"Slot {index + 1}")
-    ftype = _dig(tray, "filamentType", "type", "material", "Material", default="")
-    fname = _dig(tray, "filamentName", "name", "displayName", "settingName", default="")
-    color = _color_value(_dig(tray, "filamentColor", "color", "Colour", "Color"))
-    vendor = _dig(tray, "vendor", "brand", "manufacturer", default="")
+    tray_id = _dig(tray, "trayId", "tray_id", "slotId", "slot_id", "id", "Id", default=str(index))
+    try:
+        slot_number = int(float(tray_id)) + 1 if int(float(tray_id)) in (0, 1, 2, 3) else int(float(tray_id))
+    except Exception:
+        slot_number = index + 1
+    name = _dig(tray, "trayName", "tray_name", "slotName", "slot_name", "name", "Name", default=f"Slot {slot_number}")
+    ftype = _dig(tray, "filamentType", "filament_type", "type", "material", "Material", default="")
+    fname = _dig(tray, "filamentName", "filament_name", "name", "displayName", "display_name", "settingName", "setting_name", default="")
+    color = _color_value(_dig(tray, "filamentColor", "filament_color", "filamentColour", "filament_colour", "color", "Colour", "Color"))
+    vendor = _dig(tray, "vendor", "brand", "filamentBrand", "filament_brand", "manufacturer", default="")
     active = status_code in (1, 3) or bool(ftype or fname)
     return {
-        "mms_id": str(_dig(tray, "mmsId", default=mms_id) or mms_id),
-        "tray_id": str(tray_id or index + 1),
-        "tray_name": str(name or f"Slot {index + 1}"),
+        "mms_id": str(_dig(tray, "mmsId", "mms_id", "canvasId", "canvas_id", default=mms_id) or mms_id),
+        "canvas_id": str(_dig(tray, "canvasId", "canvas_id", "mmsId", "mms_id", default=mms_id if str(mms_id).isdigit() else "0") or "0"),
+        "tray_id": str(tray_id if tray_id not in (None, "") else index),
+        "tray_name": str(name or f"Slot {slot_number}"),
+        "slot_number": slot_number,
         "filament_type": str(ftype or ""),
         "filament_name": str(fname or ""),
         "filament_color": color,
         "vendor": str(vendor or ""),
         "serial_number": str(_dig(tray, "serialNumber", "sn", "serial", default="") or ""),
+        "brand": str(vendor or ""),
         "status": status_code,
         "status_label": FILAMENT_TRAY_STATUS.get(status_code, f"status {status_code}" if status_code is not None else ("active" if active else "unknown")),
         "active": active,
         "weight_g": _dig(tray, "filamentWeight", "weight", "remain", "remaining", default=None),
         "density": _dig(tray, "filamentDensity", "density", default=None),
         "diameter": _dig(tray, "filamentDiameter", "diameter", default=None),
-        "min_nozzle_temp": _dig(tray, "minNozzleTemp", "nozzleTempMin", default=None),
-        "max_nozzle_temp": _dig(tray, "maxNozzleTemp", "nozzleTempMax", default=None),
+        "min_nozzle_temp": _dig(tray, "minNozzleTemp", "nozzleTempMin", "filament_min_temp", "filamentMinTemp", default=None),
+        "max_nozzle_temp": _dig(tray, "maxNozzleTemp", "nozzleTempMax", "filament_max_temp", "filamentMaxTemp", default=None),
         "min_bed_temp": _dig(tray, "minBedTemp", "bedTempMin", default=None),
         "max_bed_temp": _dig(tray, "maxBedTemp", "bedTempMax", default=None),
-        "setting_id": str(_dig(tray, "settingId", "filamentId", default="") or ""),
+        "setting_id": str(_dig(tray, "settingId", "setting_id", "filamentId", "filament_code", default="") or ""),
+        "filament_code": str(_dig(tray, "filamentCode", "filament_code", "settingId", default="") or ""),
         "raw": tray,
     }
 
@@ -374,7 +390,7 @@ def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict
     snapshot = snapshot or {}
     raw_status = snapshot.get("raw_status") or {}
     normalized = snapshot.get("normalized") or {}
-    roots = [command_result, raw_status.get("canvas"), raw_status, snapshot]
+    roots = [command_result, raw_status.get("canvas"), raw_status.get("canvas_info"), raw_status, snapshot]
     root = None
     for candidate in roots:
         root = _find_filament_root(candidate)
@@ -386,10 +402,10 @@ def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict
     connected = None
     auto_refill = None
     if root:
-        system_name = str(_dig(root, "mmsSystemName", "systemName", "name", default="CANVAS") or "CANVAS")
+        system_name = str(_dig(root, "mmsSystemName", "mms_system_name", "systemName", "system_name", "name", default="CANVAS") or "CANVAS")
         connected = _boolish(_dig(root, "connected", "isConnected", "mmsConnected", default=None))
-        auto_refill = _boolish(_dig(root, "autoRefill", "auto_refill", "autoRefillEnabled", "auto_refill_enabled", default=None))
-        mms_list_raw = _as_list(_dig(root, "mmsList", "mms_list", "MmsList", default=[]))
+        auto_refill = _boolish(_dig(root, "autoRefill", "auto_refill", "autoRefillEnabled", "auto_refill_enabled", "autoFill", "auto_fill", "autoFillFilament", "auto_fill_filament", default=None))
+        mms_list_raw = _as_list(_dig(root, "mmsList", "mms_list", "MmsList", "canvasList", "canvas_list", "CanvasList", default=[]))
         if not mms_list_raw:
             trays = _as_list(_dig(root, "trayList", "tray_list", "TrayList", default=[]))
             if trays:
@@ -400,14 +416,14 @@ def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict
     for mms_index, mms in enumerate(mms_list_raw):
         if not isinstance(mms, dict):
             continue
-        mms_id = str(_dig(mms, "mmsId", "id", default=f"canvas-{mms_index + 1}") or f"canvas-{mms_index + 1}")
+        mms_id = str(_dig(mms, "mmsId", "mms_id", "canvasId", "canvas_id", "id", default=f"{mms_index}") or f"{mms_index}")
         tray_list = _as_list(_dig(mms, "trayList", "tray_list", "TrayList", default=[]))
         trays = [_normalize_tray(t, mms_id=mms_id, index=i) for i, t in enumerate(tray_list) if isinstance(t, dict)]
         trays_flat.extend(trays)
         mms_list.append({
             "mms_id": mms_id,
-            "mms_name": str(_dig(mms, "mmsName", "name", default=f"CANVAS {mms_index + 1}") or f"CANVAS {mms_index + 1}"),
-            "connected": _boolish(_dig(mms, "connected", "isConnected", default=connected)),
+            "mms_name": str(_dig(mms, "mmsName", "mms_name", "canvasName", "canvas_name", "name", default=f"CANVAS {mms_index + 1}") or f"CANVAS {mms_index + 1}"),
+            "connected": _boolish(_dig(mms, "connected", "isConnected", "is_connected", default=connected)),
             "tray_count": len(trays),
             "active_count": sum(1 for t in trays if t.get("active")),
             "trays": trays,
@@ -520,6 +536,31 @@ class LightRequest(BaseModel):
 
 class FilamentAutoRefillRequest(BaseModel):
     enabled: bool
+
+
+class FilamentMotionRequest(BaseModel):
+    canvas_id: int | str = 0
+    tray_id: int | str
+
+
+class FilamentInfoRequest(BaseModel):
+    canvas_id: int | str = 0
+    tray_id: int | str
+    brand: str = "ELEGOO"
+    filament_type: str = "PLA"
+    filament_name: str = "PLA"
+    filament_code: str = ""
+    filament_color: str = "#8b8f9a"
+    filament_min_temp: int = 190
+    filament_max_temp: int = 230
+
+
+def model_to_dict(model: BaseModel) -> dict[str, Any]:
+    # Pydantic v1/v2 compatibility. Raspberry Pi installs tend to have both in
+    # the wild, and this app shouldn't care which one won the dependency lottery.
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
 
 
 class DeleteFileRequest(BaseModel):
@@ -1851,6 +1892,60 @@ async def api_filaments_auto_refill(printer_id: str, body: FilamentAutoRefillReq
     info["command_result"] = result
     info["requested_auto_refill"] = body.enabled
     return info
+
+
+@app.post("/api/printers/{printer_id}/filaments/load")
+async def api_filaments_load(printer_id: str, body: FilamentMotionRequest):
+    params = filament_motion_params(body.canvas_id, body.tray_id)
+    result = await asyncio.to_thread(_send_command, printer_id, LOAD_FILAMENT, params, True, 300.0, False)
+    log("info", f"Requested CANVAS load for slot {params.get('tray_id')}", "filament", printer=printer_id)
+    info = await api_filaments(printer_id, refresh=True)
+    info["command_result"] = result
+    info["requested_action"] = "load"
+    info["requested_params"] = params
+    return info
+
+
+@app.post("/api/printers/{printer_id}/filaments/unload")
+async def api_filaments_unload(printer_id: str, body: FilamentMotionRequest):
+    params = filament_motion_params(body.canvas_id, body.tray_id)
+    result = await asyncio.to_thread(_send_command, printer_id, UNLOAD_FILAMENT, params, True, 300.0, False)
+    log("info", f"Requested CANVAS unload for slot {params.get('tray_id')}", "filament", printer=printer_id)
+    info = await api_filaments(printer_id, refresh=True)
+    info["command_result"] = result
+    info["requested_action"] = "unload"
+    info["requested_params"] = params
+    return info
+
+
+@app.post("/api/printers/{printer_id}/filaments/edit")
+async def api_filaments_edit(printer_id: str, body: FilamentInfoRequest):
+    params = filament_info_params(model_to_dict(body))
+    result = await asyncio.to_thread(_send_command, printer_id, SET_FILAMENT_INFO, params, True, 20.0, False)
+    log("info", f"Updated CANVAS slot {params.get('tray_id')} filament to {params.get('filament_name')} {params.get('filament_color')}", "filament", printer=printer_id)
+    info = await api_filaments(printer_id, refresh=True)
+    info["command_result"] = result
+    info["requested_action"] = "edit"
+    info["requested_params"] = params
+    return info
+
+
+@app.post("/api/printers/{printer_id}/filaments/mono/edit")
+async def api_filaments_mono_edit(printer_id: str, body: FilamentInfoRequest):
+    params = mono_filament_info_params(model_to_dict(body))
+    result = await asyncio.to_thread(_send_command, printer_id, SET_MONO_FILAMENT_INFO, params, True, 20.0, False)
+    log("info", f"Updated mono filament to {params.get('filament_name')} {params.get('filament_color')}", "filament", printer=printer_id)
+    info = await api_filaments(printer_id, refresh=True)
+    info["command_result"] = result
+    info["requested_action"] = "mono_edit"
+    info["requested_params"] = params
+    return info
+
+
+@app.get("/api/printers/{printer_id}/filaments/mono")
+async def api_filaments_mono(printer_id: str):
+    result = await asyncio.to_thread(_send_command, printer_id, GET_MONO_FILAMENT_INFO, {}, True, 12.0, False)
+    return result
 
 
 @app.get("/api/printers/{printer_id}/files")

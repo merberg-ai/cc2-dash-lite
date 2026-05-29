@@ -1499,9 +1499,27 @@
     box.innerHTML = `<strong>${esc(message)}</strong>${detail ? `<span>${esc(detail)}</span>` : ''}`;
   }
 
+  const filamentState = {
+    lastData: null,
+    selectedTray: null,
+  };
+
+  const FILAMENT_PRESETS = {
+    PLA: { type: 'PLA', name: 'PLA', min: 190, max: 230, code: '0x0000' },
+    'PLA+': { type: 'PLA', name: 'PLA+', min: 190, max: 230, code: '0x0001' },
+    'PLA Silk': { type: 'PLA', name: 'PLA Silk', min: 190, max: 230, code: '0x0003' },
+    'PLA-CF': { type: 'PLA', name: 'PLA-CF', min: 210, max: 240, code: '0x0004' },
+    PETG: { type: 'PETG', name: 'PETG', min: 220, max: 250, code: '0x0100' },
+    ABS: { type: 'ABS', name: 'ABS', min: 240, max: 270, code: '0x0200' },
+    ASA: { type: 'ASA', name: 'ASA', min: 240, max: 270, code: '0x0201' },
+    TPU: { type: 'TPU', name: 'TPU', min: 210, max: 240, code: '0x0300' },
+    PC: { type: 'PC', name: 'PC', min: 260, max: 300, code: '0x0400' },
+    PA: { type: 'PA', name: 'PA', min: 250, max: 290, code: '0x0500' },
+  };
+
   function filamentMetaLine(tray) {
     const bits = [];
-    if (tray.vendor) bits.push(tray.vendor);
+    if (tray.brand || tray.vendor) bits.push(tray.brand || tray.vendor);
     if (tray.filament_name && tray.filament_name !== tray.filament_type) bits.push(tray.filament_name);
     if (tray.diameter) bits.push(`${tray.diameter}mm`);
     if (tray.weight_g !== null && tray.weight_g !== undefined && tray.weight_g !== '') bits.push(`${tray.weight_g}g`);
@@ -1521,7 +1539,43 @@
     return 'unknown';
   }
 
+  function filamentContrastColor(hexColor) {
+    let color = String(hexColor || '#8b8f9a').replace('#', '').trim();
+    if (color.length === 3) color = color.split('').map(x => x + x).join('');
+    if (color.length !== 6) return '#fff';
+    const r = parseInt(color.slice(0, 2), 16);
+    const g = parseInt(color.slice(2, 4), 16);
+    const b = parseInt(color.slice(4, 6), 16);
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 168 ? '#161719' : '#fff';
+  }
+
+  function normalizeHexColor(color) {
+    let value = String(color || '#8b8f9a').trim();
+    if (!value.startsWith('#') && (value.length === 3 || value.length === 6)) value = `#${value}`;
+    if (!/^#[0-9a-fA-F]{6}$/.test(value) && /^#[0-9a-fA-F]{3}$/.test(value)) {
+      value = '#' + value.slice(1).split('').map(x => x + x).join('');
+    }
+    return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toUpperCase() : '#8B8F9A';
+  }
+
+  function updateFilamentSelection(tray) {
+    filamentState.selectedTray = tray || null;
+    $$('.filament-tray').forEach(card => {
+      card.classList.toggle('selected', tray && card.dataset.canvasId === String(tray.canvas_id ?? '0') && card.dataset.trayId === String(tray.tray_id ?? '0'));
+    });
+    const selected = $('#selectedFilamentSlot');
+    if (selected) selected.textContent = tray ? `${tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`}` : 'none';
+    const canUse = !!tray;
+    ['loadFilamentButton', 'unloadFilamentButton', 'editFilamentButton'].forEach(id => {
+      const btn = $('#' + id);
+      if (btn) btn.disabled = !canUse;
+    });
+  }
+
   function renderFilaments(data) {
+    filamentState.lastData = data || null;
+    filamentState.selectedTray = null;
     const list = $('#filamentList');
     const trays = data?.trays || [];
     setText('filamentSystemName', data?.system_name || 'CANVAS');
@@ -1536,13 +1590,14 @@
       refillEl.textContent = refill === true ? 'enabled' : (refill === false ? 'disabled' : 'unknown');
       refillEl.className = `pill auto-refill ${refill === true ? 'on' : (refill === false ? 'off' : 'unknown')}`;
     }
+    updateFilamentSelection(null);
     if (!list) return;
     if (!trays.length) {
       list.className = 'filament-list empty';
       list.innerHTML = `<strong>No filament data available from the printer.</strong><span>Make sure the CANVAS/Combo system is connected, wait for telemetry, then tap Refresh. Source: ${esc(data?.source || 'none')}.</span>`;
       return;
     }
-    const groups = data?.mms_list?.length ? data.mms_list : [{ mms_id: 'canvas', mms_name: data?.system_name || 'CANVAS', trays }];
+    const groups = data?.mms_list?.length ? data.mms_list : [{ mms_id: '0', mms_name: data?.system_name || 'CANVAS', trays }];
     list.className = 'filament-list';
     list.innerHTML = groups.map(group => {
       const groupTrays = group.trays || [];
@@ -1552,14 +1607,17 @@
           <span class="pill">${group.connected === false ? 'not connected' : 'connected'}</span>
         </div>
         <div class="tray-grid">
-          ${groupTrays.map(tray => {
+          ${groupTrays.map((tray, index) => {
             const cls = filamentStatusClass(tray);
             const label = tray.filament_type || tray.filament_name || (cls === 'empty' ? 'Empty' : 'Unknown');
             const meta = filamentMetaLine(tray);
-            return `<article class="filament-tray ${cls}">
-              <div class="tray-color" style="--tray-color:${esc(tray.filament_color || '#8b8f9a')}"></div>
+            const color = normalizeHexColor(tray.filament_color || '#8b8f9a');
+            const contrast = filamentContrastColor(color);
+            const slot = tray.slot_number || (Number(tray.tray_id) >= 0 ? Number(tray.tray_id) + 1 : index + 1);
+            return `<article class="filament-tray ${cls}" tabindex="0" role="button" aria-label="Select ${esc(tray.tray_name || `Slot ${slot}`)}" data-canvas-id="${esc(tray.canvas_id ?? group.mms_id ?? '0')}" data-tray-id="${esc(tray.tray_id ?? index)}" data-tray-index="${index}">
+              <div class="tray-color" style="--tray-color:${esc(color)}; --tray-text:${esc(contrast)}"><span>${esc(label || '?')}</span></div>
               <div class="tray-main">
-                <div class="tray-title-row"><strong>${esc(tray.tray_name || tray.tray_id || 'Slot')}</strong><span>${esc(tray.status_label || 'unknown')}</span></div>
+                <div class="tray-title-row"><strong>${esc(tray.tray_name || `Slot ${slot}`)}</strong><span>${esc(tray.status_label || 'unknown')}</span></div>
                 <div class="tray-material">${esc(label)}</div>
                 ${meta ? `<small>${esc(meta)}</small>` : '<small>No extra spool metadata reported.</small>'}
               </div>
@@ -1568,6 +1626,18 @@
         </div>
       </section>`;
     }).join('');
+    $$('.filament-tray', list).forEach(card => {
+      const onPick = () => {
+        const tray = (filamentState.lastData?.trays || []).find(t => String(t.canvas_id ?? '0') === card.dataset.canvasId && String(t.tray_id ?? '0') === card.dataset.trayId)
+          || (filamentState.lastData?.trays || [])[Number(card.dataset.trayIndex)]
+          || null;
+        updateFilamentSelection(tray);
+      };
+      card.addEventListener('click', onPick);
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(); }
+      });
+    });
   }
 
   async function loadFilaments(refresh = false, button = null) {
@@ -1599,6 +1669,103 @@
       toast(`Auto Filament Refill ${enabled ? 'enabled' : 'disabled'}.`, 'success');
     } catch (err) {
       toast(err.message, 'error', 9000);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  function filamentCommandPayload(tray) {
+    return {
+      canvas_id: tray?.canvas_id ?? 0,
+      tray_id: tray?.tray_id ?? 0,
+    };
+  }
+
+  async function runFilamentMotion(action, button) {
+    const tray = filamentState.selectedTray;
+    if (!tray) return toast('Select a filament slot first.', 'warn');
+    const label = tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`;
+    if (!confirm(`${action === 'load' ? 'Load/feed' : 'Unload'} filament for ${label}?\n\nThis uses the same CANVAS command shape as the stock portal and requires printer commands to be enabled.`)) return;
+    setButtonBusy(button, true, action === 'load' ? 'Loading...' : 'Unloading...');
+    try {
+      const data = await printerApi(`/filaments/${action}`, { method: 'POST', body: JSON.stringify(filamentCommandPayload(tray)) });
+      renderFilaments(data);
+      toast(`${action === 'load' ? 'Load/feed' : 'Unload'} command sent for ${label}.`, 'success', 6500);
+    } catch (err) {
+      toast(err.message, 'error', 10000);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  function applyFilamentPreset(name) {
+    const preset = FILAMENT_PRESETS[name] || FILAMENT_PRESETS.PLA;
+    const typeEl = $('#filamentEditType');
+    const nameEl = $('#filamentEditName');
+    const codeEl = $('#filamentEditCode');
+    const minEl = $('#filamentEditMinTemp');
+    const maxEl = $('#filamentEditMaxTemp');
+    if (typeEl) typeEl.value = preset.type;
+    if (nameEl) nameEl.value = preset.name;
+    if (codeEl) codeEl.value = preset.code;
+    if (minEl) minEl.value = preset.min;
+    if (maxEl) maxEl.value = preset.max;
+  }
+
+  function openFilamentEditModal() {
+    const tray = filamentState.selectedTray;
+    if (!tray) return toast('Select a filament slot first.', 'warn');
+    const modal = $('#filamentEditModal');
+    if (!modal) return;
+    const label = tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`;
+    setText('filamentEditSlotLabel', label);
+    const name = tray.filament_name || tray.filament_type || 'PLA';
+    const presetKey = Object.keys(FILAMENT_PRESETS).find(k => k.toLowerCase() === String(name).toLowerCase()) || (FILAMENT_PRESETS[tray.filament_type] ? tray.filament_type : 'PLA');
+    const presetEl = $('#filamentEditPreset');
+    if (presetEl) presetEl.value = presetKey;
+    const brandEl = $('#filamentEditBrand');
+    const typeEl = $('#filamentEditType');
+    const nameEl = $('#filamentEditName');
+    const codeEl = $('#filamentEditCode');
+    const colorEl = $('#filamentEditColor');
+    const minEl = $('#filamentEditMinTemp');
+    const maxEl = $('#filamentEditMaxTemp');
+    if (brandEl) brandEl.value = tray.brand || tray.vendor || 'ELEGOO';
+    if (typeEl) typeEl.value = tray.filament_type || FILAMENT_PRESETS[presetKey]?.type || 'PLA';
+    if (nameEl) nameEl.value = name;
+    if (codeEl) codeEl.value = tray.filament_code || tray.setting_id || FILAMENT_PRESETS[presetKey]?.code || '';
+    if (colorEl) colorEl.value = normalizeHexColor(tray.filament_color || '#8b8f9a');
+    if (minEl) minEl.value = tray.min_nozzle_temp || FILAMENT_PRESETS[presetKey]?.min || 190;
+    if (maxEl) maxEl.value = tray.max_nozzle_temp || FILAMENT_PRESETS[presetKey]?.max || 230;
+    modal.classList.remove('hidden');
+  }
+
+  function closeFilamentEditModal() {
+    $('#filamentEditModal')?.classList.add('hidden');
+  }
+
+  async function saveFilamentEdit(button) {
+    const tray = filamentState.selectedTray;
+    if (!tray) return toast('Select a filament slot first.', 'warn');
+    const body = {
+      canvas_id: tray.canvas_id ?? 0,
+      tray_id: tray.tray_id ?? 0,
+      brand: $('#filamentEditBrand')?.value || 'ELEGOO',
+      filament_type: $('#filamentEditType')?.value || 'PLA',
+      filament_name: $('#filamentEditName')?.value || 'PLA',
+      filament_code: $('#filamentEditCode')?.value || '',
+      filament_color: normalizeHexColor($('#filamentEditColor')?.value || '#8b8f9a'),
+      filament_min_temp: Number($('#filamentEditMinTemp')?.value || 190),
+      filament_max_temp: Number($('#filamentEditMaxTemp')?.value || 230),
+    };
+    setButtonBusy(button, true, 'Saving...');
+    try {
+      const data = await printerApi('/filaments/edit', { method: 'POST', body: JSON.stringify(body) });
+      closeFilamentEditModal();
+      renderFilaments(data);
+      toast(`Updated ${tray.tray_name || 'slot'} to ${body.filament_name}.`, 'success');
+    } catch (err) {
+      toast(err.message, 'error', 10000);
     } finally {
       setButtonBusy(button, false);
     }
@@ -2054,6 +2221,14 @@
     $('#refreshFilamentsButton')?.addEventListener('click', e => loadFilaments(true, e.currentTarget));
     $('#enableAutoRefillButton')?.addEventListener('click', e => setAutoRefill(true, e.currentTarget));
     $('#disableAutoRefillButton')?.addEventListener('click', e => setAutoRefill(false, e.currentTarget));
+    $('#loadFilamentButton')?.addEventListener('click', e => runFilamentMotion('load', e.currentTarget));
+    $('#unloadFilamentButton')?.addEventListener('click', e => runFilamentMotion('unload', e.currentTarget));
+    $('#editFilamentButton')?.addEventListener('click', openFilamentEditModal);
+    $('#cancelFilamentEditButton')?.addEventListener('click', closeFilamentEditModal);
+    $('#filamentEditModalClose')?.addEventListener('click', closeFilamentEditModal);
+    $('#saveFilamentEditButton')?.addEventListener('click', e => saveFilamentEdit(e.currentTarget));
+    $('#filamentEditPreset')?.addEventListener('change', e => applyFilamentPreset(e.currentTarget.value));
+    $('#filamentEditModal')?.addEventListener('click', e => { if (e.target?.id === 'filamentEditModal') closeFilamentEditModal(); });
     loadFilaments(false);
   }
 

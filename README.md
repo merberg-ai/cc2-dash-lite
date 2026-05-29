@@ -1,5 +1,12 @@
 # cc2-dash-lite
 
+### v1.2.27 idle status + active-print-only AI
+
+- Normalized idle printer sub-status code `0` so the dashboard shows **Idle** instead of raw **Sub 0**.
+- Added active-print detection to the normalized status payload.
+- Portal AI watchdog, vision monitoring, and manual vision checks now stand by while the printer is idle and resume when an active print job is detected.
+- Idle standby does not overwrite heuristic threshold settings or feedback-learning data.
+
 ### v1.2.26 file manager hidden by default
 
 - File Manager remains available, but the top navigation item is now hidden by default because stock firmware timelapse/video export behavior appears inconsistent.
@@ -291,14 +298,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.26-file-manager-hidden.zip
+unzip cc2-dash-lite-1.2.27-idle-ai-standby.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.26-file-manager-hidden cc2-dash-lite
+mv cc2-dash-lite-1.2.27-idle-ai-standby cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -459,7 +466,7 @@ Current checks include:
 - Low-confidence / benign uncertainty normalization so normal-looking prints are shown as OK instead of scary-but-empty warnings.
 - Local frame checks for dark camera images and high fine-edge/stringing-style changes.
 
-The background watchdog starts with the FastAPI service and keeps evaluating configured printers on a timer, even if nobody has the dashboard open. The dashboard displays the latest cached watchdog result when available.
+The background watchdog starts with the FastAPI service, but as of v1.2.27 it only performs AI/vision monitoring while an active print job is detected. When the printer is idle, Portal AI shows an idle standby state and avoids camera/Ollama work. The dashboard displays the latest cached watchdog result when available.
 
 ### Ollama setup
 
@@ -935,6 +942,14 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.27
+
+- Normalized CC2 idle sub-status code `0` to display as **Idle** instead of **Sub 0**.
+- Added an `active_print` flag to normalized dashboard status output.
+- Portal AI and Ollama vision monitoring now pause while the printer is idle when `portal_ai.monitor_active_prints_only` is enabled, which is the default.
+- Manual **Analyze Camera Now** / vision check requests now return a skipped idle/standby result instead of grabbing frames or calling Ollama when no active print is detected.
+- Existing user-tuned heuristic thresholds are preserved.
 
 ### v1.2.26
 

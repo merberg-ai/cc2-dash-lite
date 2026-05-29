@@ -132,6 +132,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "check_interval_seconds": 30,
         "background_log_changes": True,
         "background_min_log_level": "watch",
+        "monitor_active_prints_only": True,
         "telemetry_rules_enabled": True,
         "camera_rules_enabled": True,
         "opencv_rules_enabled": False,
@@ -326,6 +327,7 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         pass
     try:
         ai = cfg.setdefault("portal_ai", {})
+        ai.setdefault("monitor_active_prints_only", True)
         ai.setdefault("vision_treat_benign_uncertain_as_ok", True)
         ai.setdefault("vision_benign_uncertain_max_severity", 25)
         ai.setdefault("vision_uncertain_risk_severity_threshold", 35)

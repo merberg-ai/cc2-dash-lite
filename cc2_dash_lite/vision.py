@@ -183,6 +183,14 @@ class VisionMonitor:
         result = (self._state.get(printer_id) or {}).get("last_result")
         return dict(result) if isinstance(result, dict) else None
 
+    def set_cached_result(self, printer_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Store a lightweight cached result without capturing a camera frame."""
+        row = dict(result)
+        state = self._state.setdefault(printer_id, {"consecutive_bad": 0})
+        state["consecutive_bad"] = 0
+        state["last_result"] = row
+        return dict(row)
+
     def reset(self, printer_id: str | None = None) -> None:
         if printer_id:
             self._state.pop(printer_id, None)

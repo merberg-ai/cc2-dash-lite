@@ -66,6 +66,16 @@ class PortalAIDetector:
         result = (self._state.get(printer_id) or {}).get("last_result")
         return dict(result) if isinstance(result, dict) else None
 
+    def set_cached_result(self, printer_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        """Store a lightweight cached result without running the rule engine.
+
+        Used when the printer is idle so the dashboard can show a clean standby
+        state while the watchdog avoids camera/Ollama/rule work.
+        """
+        row = dict(result)
+        self._state.setdefault(printer_id, {})["last_result"] = row
+        return dict(row)
+
     def evaluate(self, printer_id: str, status: dict[str, Any], snap: dict[str, Any] | None, cfg: dict[str, Any] | None = None, source: str = "request") -> dict[str, Any]:
         cfg = cfg or {}
         ai_cfg = cfg.get("portal_ai", {}) or {}
@@ -121,9 +131,43 @@ class PortalAIDetector:
         )
         multi_color_grace_active = multi_color_mode == "always" or (multi_color_mode == "auto" and filament_operation_state)
 
-        active_state = _text_contains(state_lower, "print", "paus", "resum", "stopp", "idle in print", "filament operating", "extruder preheating")
-        has_print_markers = bool(file_name and file_name != "-" and progress < 99.9 and (hotend_target > 0 or bed_target > 0 or elapsed_sec > 0))
-        active_print = bool(active_state or has_print_markers)
+        status_active_hint = status.get("active_print")
+        if status_active_hint is not None:
+            active_print = bool(status_active_hint)
+        else:
+            active_state = _text_contains(state_lower, "printing", "paused", "pausing", "resuming", "stopping", "idle in print")
+            has_print_markers = bool(file_name and file_name != "-" and progress < 99.9 and (hotend_target > 0 or bed_target > 0 or elapsed_sec > 0))
+            active_print = bool(active_state or has_print_markers)
+
+        if ai_cfg.get("monitor_active_prints_only", True) and not active_print:
+            prev["progress"] = progress
+            prev["progress_changed_at"] = now
+            result = {
+                "enabled": True,
+                "state": "idle_standby",
+                "level": "low",
+                "risk": 0,
+                "summary": "Idle",
+                "reasons": ["Printer is idle; Portal AI monitoring is paused until an active print starts."],
+                "positives": ["Printer telemetry is connected."] if reachable else [],
+                "active_print": False,
+                "monitor_active_prints_only": True,
+                "multi_color_grace_active": False,
+                "multi_color_mode": multi_color_mode,
+                "progress_stuck_threshold_minutes": _as_float(ai_cfg.get("progress_stuck_minutes"), 8.0),
+                "last_check_epoch": now,
+                "last_check": time.strftime("%H:%M:%S"),
+                "source": source,
+                "background_monitor_enabled": bool(ai_cfg.get("background_monitor_enabled", True)),
+                "rules": {
+                    "telemetry": bool(ai_cfg.get("telemetry_rules_enabled", True)),
+                    "camera": bool(ai_cfg.get("camera_rules_enabled", True)),
+                    "vision": bool(ai_cfg.get("vision_ai_enabled", False)),
+                },
+                "vision": status.get("vision_ai") if isinstance(status.get("vision_ai"), dict) else None,
+            }
+            prev["last_result"] = result
+            return result
 
         if not reachable:
             risk += 45 if active_print else 30

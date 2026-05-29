@@ -21,9 +21,11 @@ MACHINE_STATUS = {
     13: "extruder operating",
     14: "emergency stop",
     15: "power loss recovery",
+    16: "completed",
 }
 
 SUB_STATUS = {
+    0: "idle",
     1041: "idle in print",
     1045: "extruder preheating",
     1096: "extruder preheating",

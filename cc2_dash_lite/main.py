@@ -112,6 +112,130 @@ SPEED_PRESETS = {
     3: "Ludicrous",
 }
 
+
+ACTIVE_MACHINE_STATUS_CODES = {2}
+ACTIVE_SUB_STATUS_CODES = {
+    1041,  # idle in print / active job context
+    1045, 1096,  # extruder preheating during a queued/active print
+    1405, 1906,  # bed preheating during a queued/active print
+    2075,  # printing
+    2401, 2402,  # resuming / resume complete
+    2501, 2502, 2503, 2504, 2505,  # pause/stop states while a job exists
+}
+IDLE_MACHINE_STATUS_CODES = {1, 16}
+IDLE_SUB_STATUS_CODES = {0, 2077}
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _has_real_file(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text not in {"-", "none", "None", "null"})
+
+
+def _status_looks_active_print(status: dict[str, Any] | None, snap: dict[str, Any] | None = None) -> bool:
+    """Best-effort active job detector used to gate AI/vision work.
+
+    The CC2 can leave old file/progress values around after a job completes, so
+    raw file name alone is not enough. Prefer explicit machine/sub status codes,
+    then fall back to state text plus print markers.
+    """
+    status = status or {}
+    n = ((snap or {}).get("normalized") or {}) if isinstance(snap, dict) else {}
+    machine_code = n.get("status_code")
+    sub_code = n.get("sub_status_code")
+    try:
+        machine_code = int(machine_code) if machine_code is not None else None
+    except Exception:
+        machine_code = None
+    try:
+        sub_code = int(sub_code) if sub_code is not None else None
+    except Exception:
+        sub_code = None
+
+    file_name = status.get("file") if status.get("file") is not None else n.get("file")
+    has_file = _has_real_file(file_name)
+    progress = _coerce_float(status.get("progress", n.get("progress", 0.0)), 0.0)
+    elapsed = _coerce_float(((n.get("time") or {}).get("elapsed_sec")), 0.0)
+    hot_target = _coerce_float(status.get("hotend_target", ((n.get("temps") or {}).get("nozzle") or {}).get("target")), 0.0)
+    bed_target = _coerce_float(status.get("bed_target", ((n.get("temps") or {}).get("bed") or {}).get("target")), 0.0)
+    state_text = " ".join(
+        str(x or "")
+        for x in (
+            status.get("state"),
+            status.get("status_text"),
+            n.get("state"),
+            n.get("sub_state"),
+        )
+    ).lower()
+
+    if machine_code in ACTIVE_MACHINE_STATUS_CODES:
+        return True
+    if sub_code in ACTIVE_SUB_STATUS_CODES and (has_file or machine_code not in IDLE_MACHINE_STATUS_CODES):
+        return True
+    if machine_code in IDLE_MACHINE_STATUS_CODES and sub_code in IDLE_SUB_STATUS_CODES:
+        return False
+    if "completed" in state_text or state_text.strip() == "idle":
+        return False
+    if any(word in state_text for word in ("printing", "paused", "pausing", "resuming", "stopping", "idle in print")):
+        return True
+    if has_file and 0.0 < progress < 99.9:
+        return True
+    if has_file and elapsed > 0 and progress < 99.9 and (hot_target > 0 or bed_target > 0):
+        return True
+    return False
+
+
+def _idle_vision_result(printer_id: str, source: str = "request") -> dict[str, Any]:
+    now = time.time()
+    result = {
+        "enabled": True,
+        "skipped": True,
+        "visual_state": "standby",
+        "summary": "Printer is idle; vision monitoring is paused until an active print starts.",
+        "consecutive_bad": 0,
+        "last_check_epoch": now,
+        "last_check": time.strftime("%H:%M:%S"),
+        "source": source,
+        "active_print": False,
+    }
+    return vision_monitor.set_cached_result(printer_id, result)
+
+
+def _idle_ai_result(printer_id: str, status: dict[str, Any], cfg: dict[str, Any], source: str = "request") -> dict[str, Any]:
+    ai_cfg = cfg.get("portal_ai", {}) or {}
+    now = time.time()
+    vision = status.get("vision_ai") if isinstance(status.get("vision_ai"), dict) else None
+    result = {
+        "enabled": bool(ai_cfg.get("enabled", True)),
+        "state": "idle_standby",
+        "level": "low",
+        "risk": 0,
+        "summary": "Idle",
+        "reasons": ["Printer is idle; AI watchdog and vision monitoring are paused until an active print starts."],
+        "positives": ["Printer status is idle."],
+        "active_print": False,
+        "monitor_active_prints_only": True,
+        "last_check_epoch": now,
+        "last_check": time.strftime("%H:%M:%S"),
+        "source": source,
+        "background_monitor_enabled": bool(ai_cfg.get("background_monitor_enabled", True)),
+        "rules": {
+            "telemetry": bool(ai_cfg.get("telemetry_rules_enabled", True)),
+            "camera": bool(ai_cfg.get("camera_rules_enabled", True)),
+            "vision": bool(ai_cfg.get("vision_ai_enabled", False)),
+        },
+        "vision": vision,
+    }
+    return portal_ai.set_cached_result(printer_id, result)
+
 FILAMENT_TRAY_STATUS = {
     0: "empty",
     1: "loaded",
@@ -1110,6 +1234,10 @@ async def api_set_default_printer(printer_id: str):
 
 def _maybe_attach_vision(printer_id: str, printer: dict[str, Any] | None, status: dict[str, Any], cfg: dict[str, Any], ai_source: str = "request", force: bool = False) -> dict[str, Any]:
     ai_cfg = cfg.get("portal_ai", {}) or {}
+    if ai_cfg.get("monitor_active_prints_only", True) and not bool(status.get("active_print")):
+        if ai_cfg.get("vision_ai_enabled", False):
+            status["vision_ai"] = _idle_vision_result(printer_id, ai_source)
+        return status
     if not ai_cfg.get("vision_ai_enabled", False):
         cached = vision_monitor.cached_result(printer_id)
         if cached:
@@ -1151,6 +1279,11 @@ def _maybe_attach_vision(printer_id: str, printer: dict[str, Any] | None, status
 
 def _attach_ai_status(printer_id: str, status: dict[str, Any], snap: Optional[dict[str, Any]], cfg: dict[str, Any], ai_source: str = "request", force_ai_evaluate: bool = False, printer: dict[str, Any] | None = None) -> dict[str, Any]:
     ai_cfg = cfg.get("portal_ai", {}) or {}
+    if ai_cfg.get("enabled", True) and ai_cfg.get("monitor_active_prints_only", True) and not bool(status.get("active_print")):
+        if ai_cfg.get("vision_ai_enabled", False):
+            status["vision_ai"] = _idle_vision_result(printer_id, ai_source)
+        status["portal_ai"] = _idle_ai_result(printer_id, status, cfg, ai_source)
+        return status
     use_cached = (
         ai_source == "request"
         and ai_cfg.get("enabled", True)
@@ -1240,6 +1373,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "direct_portal_url": f"http://{pcfg.host}/",
         "raw": snap,
     }
+    status["active_print"] = _status_looks_active_print(status, snap)
     if not attach_ai:
         return status
     return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
@@ -2332,7 +2466,12 @@ async def api_vision_check_now(printer_id: str):
         runtime.start(printer_id, printer_dict_to_config(printer_id, printer))
     snap = runtime.snapshot(printer_id)
     # Build status without forcing a nested vision run, then run vision explicitly.
-    status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False)
+    status = _status_from_snapshot(printer_id, printer, snap, ai_source="request", force_ai_evaluate=False, attach_ai=False)
+    if (cfg.get("portal_ai", {}) or {}).get("monitor_active_prints_only", True) and not bool(status.get("active_print")):
+        result = _idle_vision_result(printer_id, "manual")
+        status["vision_ai"] = result
+        status["portal_ai"] = _idle_ai_result(printer_id, status, cfg, "manual")
+        return {"ok": True, "skipped": True, "reason": "idle", "vision": result, "portal_ai": status.get("portal_ai"), "status": status}
     result = await asyncio.to_thread(
         vision_monitor.check,
         printer_id,

@@ -477,7 +477,7 @@
         host,
         name,
         serial: serial || host,
-        access_code: accessCode || '123456',
+        access_code: accessCode || '',
         portal_url: portalUrl,
         camera_url: cameraUrl,
         set_default: options.setDefault !== false,
@@ -521,11 +521,12 @@
         ${proof ? `<span>Proof: ${esc(proof)}</span>` : `<span>Proof: Centauri discovery response</span>`}
         ${serial ? `<span>Serial: ${esc(serial)}</span>` : `<label class="field-label" for="${serialId}">Serial number</label><input id="${serialId}" class="input scan-serial" placeholder="Printer serial / SN" />`}
         <label class="field-label" for="${pinId}">Printer PIN / access code</label>
-        <input id="${pinId}" class="input scan-pin" type="password" inputmode="numeric" value="123456" placeholder="123456" />
+        <input id="${pinId}" class="input scan-pin" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Printer PIN / access code" />
         <button class="button primary full" style="margin-top:.65rem"><span class="button-label">Pair / Save This Printer</span></button>
       `;
       $('button', item).addEventListener('click', async e => {
-        const pin = $('.scan-pin', item)?.value?.trim() || '123456';
+        const pin = $('.scan-pin', item)?.value?.trim() || '';
+        if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
         const serialValue = serial || $('.scan-serial', item)?.value?.trim() || c.host;
         setButtonBusy(e.currentTarget, true, 'Pairing...');
         try {
@@ -659,8 +660,9 @@
       const host = $('#manualHost').value.trim();
       const name = $('#manualName').value.trim() || 'Centauri Carbon 2';
       const serial = $('#manualSerial').value.trim() || host;
-      const pin = $('#manualPin').value.trim() || '123456';
+      const pin = $('#manualPin').value.trim();
       if (!host) return toast('Enter a printer IP first.', 'warn');
+      if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
       setButtonBusy(manual, true, 'Pairing...');
       try {
         await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });
@@ -807,7 +809,7 @@
             <label class="inline-field"><span class="field-label">Display name</span><input class="input printer-name" value="${esc(p.name || '')}" /></label>
             <label class="inline-field"><span class="field-label">Host / IP</span><input class="input printer-host" value="${esc(p.host || '')}" /></label>
             <label class="inline-field"><span class="field-label">Serial / SN</span><input class="input printer-serial" value="${esc(p.serial || '')}" /></label>
-            <label class="inline-field"><span class="field-label">PIN / access code</span><input class="input printer-pin" type="password" placeholder="leave blank to keep saved" /></label>
+            <label class="inline-field"><span class="field-label">PIN / access code</span><input class="input printer-pin" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="leave blank to keep saved" /></label>
             <label class="inline-field"><span class="field-label">MQTT port</span><input class="input printer-port" type="number" min="1" max="65535" value="${esc(p.port || 1883)}" /></label>
           </div>
           <div class="printer-toggle-row">
@@ -955,8 +957,9 @@
       const host = $('#managerManualHost')?.value?.trim() || '';
       const name = $('#managerManualName')?.value?.trim() || 'Centauri Carbon 2';
       const serial = $('#managerManualSerial')?.value?.trim() || host;
-      const pin = $('#managerManualPin')?.value?.trim() || '123456';
+      const pin = $('#managerManualPin')?.value?.trim() || '';
       if (!host) return toast('Enter a printer IP/host first.', 'warn');
+      if (!pin) return toast('Enter the printer PIN / access code first.', 'warn');
       setButtonBusy(managerManual, true, 'Saving...');
       try {
         await savePrinter(host, name, `http://${host}/`, `http://${host}:8080/`, serial, pin, { redirect:false });

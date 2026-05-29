@@ -1,5 +1,11 @@
 # cc2-dash-lite
 
+### v1.2.22 alphanumeric printer PIN fields
+
+- Updated setup wizard and Settings printer PIN/access-code fields so mobile browsers show a normal keyboard instead of a numeric-only keypad.
+- Removed the prefilled `123456` PIN from setup/manual-add flows; new printers now require the user to enter the actual printer access code.
+- Backend printer-add validation now rejects blank access codes instead of silently saving the old default.
+
 ### v1.2.21 setup wizard copy cleanup
 
 - Trimmed the first-run setup header card down to only the progress bar.
@@ -258,14 +264,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.21.zip
+unzip cc2-dash-lite-1.2.22.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.21 cc2-dash-lite
+mv cc2-dash-lite-1.2.22 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

@@ -348,7 +348,7 @@ class AddPrinterRequest(BaseModel):
     name: str = "Centauri Carbon 2"
     host: str
     serial: str | None = None
-    access_code: str = "123456"
+    access_code: str = ""
     port: int = 1883
     enabled: bool = True
     allow_commands: bool = True
@@ -1018,6 +1018,9 @@ async def api_list_printers():
 @app.post("/api/printers")
 async def api_add_printer(req: AddPrinterRequest):
     cfg = load_config()
+    access_code = (req.access_code or "").strip()
+    if not access_code:
+        raise HTTPException(status_code=400, detail="Printer PIN / access code is required")
     serial = (req.serial or "").strip() or req.host.strip()
     safe_id = req.id or safe_printer_id(serial or req.name or req.host)
     base_id = safe_id
@@ -1029,7 +1032,7 @@ async def api_add_printer(req: AddPrinterRequest):
         "name": req.name,
         "host": req.host.strip(),
         "serial": serial,
-        "access_code": req.access_code.strip() or "123456",
+        "access_code": access_code,
         "port": int(req.port or 1883),
         "model": "centauri_carbon_2",
         "enabled": bool(req.enabled),

@@ -4,6 +4,8 @@
   const page = document.body.dataset.page;
   const cfgEl = $('#bootConfig');
   let cfg = cfgEl ? JSON.parse(cfgEl.textContent) : {};
+  let dashboardThumbnailUrl = '';
+  let dashboardThumbnailFile = '';
 
   function toast(message, type = 'info', timeout = 4200) {
     const host = $('#toastHost');
@@ -241,6 +243,84 @@
     }, 2200);
   }
 
+
+  function hideGcodeThumbnail() {
+    const card = $('#gcodeThumbnailCard');
+    const img = $('#gcodeThumbnailImg');
+    if (card) card.classList.add('hidden');
+    if (img) {
+      img.removeAttribute('src');
+      img.alt = 'G-code thumbnail';
+    }
+    dashboardThumbnailUrl = '';
+    dashboardThumbnailFile = '';
+  }
+
+  function renderGcodeThumbnail(st) {
+    const card = $('#gcodeThumbnailCard');
+    const img = $('#gcodeThumbnailImg');
+    if (!card || !img) return;
+    const url = st?.gcode_thumbnail_url || '';
+    const file = st?.file && st.file !== '-' ? st.file : '';
+    if (!url || st?.show_gcode_thumbnail === false || !file) {
+      hideGcodeThumbnail();
+      return;
+    }
+    dashboardThumbnailFile = file;
+    if (dashboardThumbnailUrl === url && img.getAttribute('src')) {
+      card.classList.remove('hidden');
+      return;
+    }
+    dashboardThumbnailUrl = url;
+    card.classList.add('hidden');
+    img.onload = () => {
+      card.classList.remove('hidden');
+      img.alt = `G-code thumbnail for ${file}`;
+    };
+    img.onerror = () => {
+      hideGcodeThumbnail();
+    };
+    img.src = url;
+  }
+
+  function openGcodeThumbnailModal() {
+    const modal = $('#gcodeThumbnailModal');
+    const source = $('#gcodeThumbnailImg');
+    const img = $('#gcodeThumbnailModalImg');
+    const file = $('#gcodeThumbnailModalFile');
+    if (!modal || !source || !img || !source.getAttribute('src')) return;
+    img.src = source.getAttribute('src');
+    img.alt = source.alt || 'G-code thumbnail preview';
+    if (file) file.textContent = dashboardThumbnailFile || 'Current print preview';
+    modal.classList.remove('hidden');
+    modal.setAttribute('aria-hidden', 'false');
+  }
+
+  function closeGcodeThumbnailModal() {
+    const modal = $('#gcodeThumbnailModal');
+    const img = $('#gcodeThumbnailModalImg');
+    if (!modal) return;
+    modal.classList.add('hidden');
+    modal.setAttribute('aria-hidden', 'true');
+    if (img) img.removeAttribute('src');
+  }
+
+  function initGcodeThumbnailModal() {
+    const button = $('#gcodeThumbnailButton');
+    const close = $('#gcodeThumbnailModalClose');
+    const modal = $('#gcodeThumbnailModal');
+    if (button) button.addEventListener('click', openGcodeThumbnailModal);
+    if (close) close.addEventListener('click', closeGcodeThumbnailModal);
+    if (modal) {
+      modal.addEventListener('click', event => {
+        if (event.target === modal) closeGcodeThumbnailModal();
+      });
+    }
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape') closeGcodeThumbnailModal();
+    });
+  }
+
   async function refreshDashboard() {
     try {
       const st = await api('/api/status');
@@ -279,6 +359,8 @@
       setText('currentSpeed', speedText);
       setText('currentSpeedBrief', speedText);
       setText('filamentUsed', st.filament_used || '-');
+      setText('layerProgress', st.layer_progress || '-');
+      renderGcodeThumbnail(st);
       setText('hotendTemp', tempLine(st.hotend_current, st.hotend_target));
       setText('bedTemp', tempLine(st.bed_current, st.bed_target));
       setText('fileName', st.file || '-');
@@ -346,6 +428,7 @@
 
   function initDashboard() {
     initDashboardAccordions();
+    initGcodeThumbnailModal();
     refreshDashboard();
     const interval = Number(cfg?.dashboard?.refresh_interval_seconds || 3) * 1000;
     setInterval(refreshDashboard, Math.max(1500, interval));
@@ -1125,6 +1208,9 @@
           c.order = Number($('.card-order', row)?.value || 99);
         }
       });
+
+      const showThumb = $('#dashboardShowGcodeThumbnail');
+      if (showThumb) cfg.dashboard.show_gcode_thumbnail = !!showThumb.checked;
 
       cfg.features.file_manager_enabled = !!$('#fileManagerEnabled')?.checked;
       cfg.features.filament_manager_enabled = !!$('#filamentManagerEnabled')?.checked;

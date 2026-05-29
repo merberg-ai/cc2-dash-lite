@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import ipaddress
 import json
 import shutil
@@ -590,6 +591,201 @@ def _speed_label(mode: Any, raw_speed: Any = None, speed_percent: Any = None) ->
         except Exception:
             return str(raw_speed)
     return "-"
+
+
+def _get_nested(data: Any, path: str, default: Any = None) -> Any:
+    cur = data
+    for part in str(path or "").split("."):
+        if isinstance(cur, dict) and part in cur:
+            cur = cur[part]
+        else:
+            return default
+    return cur
+
+
+def _first_status_value(data: Any, paths: list[str]) -> tuple[Any, str | None]:
+    for path in paths:
+        value = _get_nested(data, path)
+        if value not in (None, "", "-"):
+            return value, path
+    # Last resort: search case-ish key names through the raw blob.
+    keys = [p.split(".")[-1] for p in paths]
+    found = _find_first_key(data, *keys, max_depth=6)
+    if found not in (None, "", "-"):
+        return found, "recursive:" + "/".join(keys[:3])
+    return None, None
+
+
+def _format_layer_progress(current: Any, total: Any) -> str:
+    def to_int(value: Any) -> int | None:
+        try:
+            if value is None or value == "":
+                return None
+            number = int(float(value))
+            return number if number >= 0 else None
+        except Exception:
+            return None
+    cur = to_int(current)
+    tot = to_int(total)
+    if cur is not None and tot is not None and tot > 0:
+        return f"{cur}/{tot}"
+    if cur is not None and cur > 0:
+        return str(cur)
+    if tot is not None and tot > 0:
+        return f"-/{tot}"
+    return "-"
+
+
+def _format_filament_used(value: Any, source: str | None = None) -> str:
+    if value in (None, "", "-"):
+        return "-"
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return "-"
+        # Preserve values that already include a unit from firmware.
+        lowered = text.lower()
+        if any(unit in lowered for unit in (" g", "kg", " mm", "cm", " m")):
+            return text
+        raw = text.replace(",", "")
+    else:
+        raw = value
+    try:
+        number = float(raw)
+    except Exception:
+        return str(value)
+    if number <= 0:
+        return "-"
+    key = str(source or "").lower()
+    if "kg" in key:
+        return f"{number:.3g} kg"
+    if "meter" in key or key.endswith("_m") or key.endswith(".m"):
+        return f"{number:.2f} m"
+    if "length" in key or key.endswith("_mm") or "filamentlen" in key:
+        return f"{number / 1000.0:.2f} m" if number >= 1000 else f"{number:.0f} mm"
+    # Stock portal file-detail data maps totalFilamentUsed to materialWeight and displays grams.
+    return f"{number:.1f} g" if number < 100 else f"{number:.0f} g"
+
+
+def _extract_print_metrics(snap: dict[str, Any] | None, normalized: dict[str, Any]) -> dict[str, Any]:
+    snap = snap or {}
+    raw_status = snap.get("raw_status") or {}
+    layers = normalized.get("layers") or {}
+    current_layer, current_src = _first_status_value(raw_status, [
+        "print_status.current_layer", "print_status.currentLayer", "print_status.currentLayerIndex",
+        "print_status.CurrentLayer", "print_status.AlreadyPrintLayer", "PrintInfo.CurrentLayer",
+        "printInfo.currentLayer", "current_layer", "currentLayer", "CurrentLayer", "AlreadyPrintLayer",
+    ])
+    total_layer, total_src = _first_status_value(raw_status, [
+        "print_status.total_layer", "print_status.totalLayer", "print_status.totalLayers",
+        "print_status.TotalLayer", "print_status.TotalLayers", "PrintInfo.TotalLayer",
+        "printInfo.totalLayer", "total_layer", "totalLayer", "totalLayers", "TotalLayer", "TotalLayers",
+    ])
+    current_layer = layers.get("current") if layers.get("current") not in (None, "") else current_layer
+    total_layer = layers.get("total") if layers.get("total") not in (None, "") else total_layer
+
+    filament_used, filament_src = _first_status_value(raw_status, [
+        "print_status.filament_used", "print_status.filamentUsed", "print_status.FilamentUsed",
+        "print_status.total_filament_used", "print_status.totalFilamentUsed", "print_status.TotalFilamentUsed",
+        "print_status.material_weight", "print_status.materialWeight", "print_status.MaterialWeight",
+        "print_status.filament_weight", "print_status.filamentWeight", "print_status.FilamentWeight",
+        "print_status.filament_length", "print_status.filamentLength", "print_status.FilamentLength",
+        "PrintInfo.FilamentUsed", "PrintInfo.TotalFilamentUsed", "PrintInfo.MaterialWeight", "PrintInfo.FilamentLength",
+        "printInfo.filamentUsed", "printInfo.totalFilamentUsed", "printInfo.materialWeight", "printInfo.filamentLength",
+        "filament_used", "filamentUsed", "FilamentUsed", "total_filament_used", "totalFilamentUsed", "TotalFilamentUsed",
+        "material_weight", "materialWeight", "MaterialWeight", "filament_length", "filamentLength", "FilamentLength",
+    ])
+    return {
+        "layer_current": current_layer,
+        "layer_total": total_layer,
+        "layer_progress": _format_layer_progress(current_layer, total_layer),
+        "layer_source": {"current": current_src, "total": total_src},
+        "filament_used": _format_filament_used(filament_used, filament_src),
+        "filament_used_raw": filament_used,
+        "filament_used_source": filament_src,
+    }
+
+
+def _looks_like_image_bytes(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def _iter_thumbnail_candidates(node: Any):
+    preferred = {
+        "thumbnail", "Thumbnail", "thumb", "Thumb", "image", "Image", "data", "Data",
+        "base64", "Base64", "file_thumbnail", "fileThumbnail", "FileThumbnail",
+        "preview", "Preview", "previewImage", "PreviewImage", "model_image", "modelImage",
+    }
+    if isinstance(node, dict):
+        for key in preferred:
+            if key in node:
+                yield node[key]
+        for value in node.values():
+            yield from _iter_thumbnail_candidates(value)
+    elif isinstance(node, list):
+        for value in node[:12]:
+            yield from _iter_thumbnail_candidates(value)
+    elif isinstance(node, str):
+        yield node
+
+
+def _extract_thumbnail_image(payload: Any) -> tuple[bytes | None, str | None, str | None]:
+    root = payload
+    if isinstance(root, dict) and "result" in root:
+        root = root.get("result")
+    if isinstance(root, dict) and "data" in root and len(root) <= 4:
+        # Some firmware wrappers use {error_code, data:{thumbnail:...}}.
+        root = root.get("data") or root
+    for candidate in _iter_thumbnail_candidates(root):
+        if candidate in (None, ""):
+            continue
+        if isinstance(candidate, (bytes, bytearray)):
+            data = bytes(candidate)
+            media = _looks_like_image_bytes(data)
+            if media:
+                return data, media, None
+            continue
+        if isinstance(candidate, list) and candidate and all(isinstance(x, int) for x in candidate[:16]):
+            try:
+                data = bytes(candidate)
+                media = _looks_like_image_bytes(data)
+                if media:
+                    return data, media, None
+            except Exception:
+                pass
+        if not isinstance(candidate, str):
+            continue
+        text = candidate.strip().strip('"')
+        if not text:
+            continue
+        if text.startswith("http://") or text.startswith("https://") or text.startswith("/"):
+            return None, None, text
+        if text.startswith("data:image/"):
+            try:
+                header, encoded = text.split(",", 1)
+                media = header.split(";", 1)[0].replace("data:", "") or "image/png"
+                return base64.b64decode(encoded), media, None
+            except Exception:
+                continue
+        compact = "".join(text.split())
+        if len(compact) < 80:
+            continue
+        try:
+            data = base64.b64decode(compact, validate=False)
+        except Exception:
+            continue
+        media = _looks_like_image_bytes(data)
+        if media:
+            return data, media, None
+    return None, None, None
 
 
 class ScanRequest(BaseModel):
@@ -1479,6 +1675,7 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         progress = max(0, min(100, progress))
     except Exception:
         progress = 0.0
+    print_metrics = _extract_print_metrics(snap, n)
     state = n.get("sub_state") or n.get("state") or ("registered" if snap.get("registered") else "offline")
     reachable = bool(snap.get("connected") or snap.get("registered"))
     status = {
@@ -1501,12 +1698,19 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "speed_raw": speed_raw,
         "speed_percent": speed_percent,
         "speed_setting": speed_label,
-        "filament_used": "-",
+        "filament_used": print_metrics.get("filament_used") or "-",
+        "filament_used_raw": print_metrics.get("filament_used_raw"),
+        "filament_used_source": print_metrics.get("filament_used_source"),
+        "layer_current": print_metrics.get("layer_current"),
+        "layer_total": print_metrics.get("layer_total"),
+        "layer_progress": print_metrics.get("layer_progress") or "-",
         "hotend_current": nozzle.get("actual"),
         "hotend_target": nozzle.get("target"),
         "bed_current": bed.get("actual"),
         "bed_target": bed.get("target"),
         "file": n.get("file") or "-",
+        "gcode_thumbnail_url": None,
+        "show_gcode_thumbnail": bool((load_config().get("dashboard") or {}).get("show_gcode_thumbnail", True)),
         "updated_at": snap.get("last_message_age_sec"),
         "camera_url": f"/api/printers/{printer_id}/camera/stream",
         "camera_snapshot_url": f"/api/printers/{printer_id}/camera/snapshot.jpg",
@@ -1520,6 +1724,8 @@ def _status_from_snapshot(printer_id: str, printer: dict[str, Any], snap: Option
         "raw": snap,
     }
     status["active_print"] = _status_looks_active_print(status, snap)
+    if status.get("show_gcode_thumbnail") and _has_real_file(status.get("file")):
+        status["gcode_thumbnail_url"] = f"/api/printers/{printer_id}/files/thumbnail-image?filename={quote(str(status.get('file') or ''))}&storage_media=local"
     if not attach_ai:
         return status
     return _attach_ai_status(printer_id, status, snap, load_config(), ai_source=ai_source, force_ai_evaluate=force_ai_evaluate, printer=printer)
@@ -2087,6 +2293,36 @@ async def api_file_detail(printer_id: str, filename: str, storage_media: str = "
 @app.get("/api/printers/{printer_id}/files/thumbnail")
 async def api_file_thumbnail(printer_id: str, filename: str, storage_media: str = "local"):
     return await asyncio.to_thread(_send_command, printer_id, GET_FILE_THUMBNAIL, file_thumbnail_params(filename, storage_media), True, 15.0)
+
+
+@app.get("/api/printers/{printer_id}/files/thumbnail-image")
+async def api_file_thumbnail_image(printer_id: str, filename: str, storage_media: str = "local"):
+    """Return a G-code thumbnail as an actual image when firmware provides one.
+
+    The stock portal accepts several response shapes: the thumbnail may arrive
+    from method 1045, from file detail 1046, as a data URL, or as raw base64.
+    This proxy normalizes those into an <img>-friendly response and returns 404
+    when the active file simply has no thumbnail.
+    """
+    for method, params, timeout in (
+        (GET_FILE_THUMBNAIL, file_thumbnail_params(filename, storage_media), 15.0),
+        (GET_FILE_DETAIL, file_detail_params(filename, storage_media), 15.0),
+    ):
+        try:
+            payload = await asyncio.to_thread(_send_command, printer_id, method, params, True, timeout, False)
+        except Exception as exc:
+            log("debug", f"Thumbnail command {method} failed for {filename}: {exc}", "command", printer=printer_id)
+            continue
+        data, media_type, redirect_url = _extract_thumbnail_image(payload)
+        if data and media_type:
+            return Response(content=data, media_type=media_type, headers={"Cache-Control": "no-store"})
+        if redirect_url:
+            cfg = load_config()
+            pdata = (cfg.get("printers") or {}).get(printer_id)
+            if pdata and not redirect_url.startswith(("http://", "https://", "//")):
+                redirect_url = _absolute_printer_url(printer_dict_to_config(printer_id, pdata), redirect_url)
+            return RedirectResponse(redirect_url)
+    raise HTTPException(404, "No G-code thumbnail returned for this file")
 
 
 @app.post("/api/printers/{printer_id}/files/delete")

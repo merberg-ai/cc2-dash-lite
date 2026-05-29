@@ -1,6 +1,6 @@
 # cc2-dash-lite
 
-![Version](https://img.shields.io/badge/version-1.2.32-blue)
+![Version](https://img.shields.io/badge/version-1.2.33-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)
 ![Platform](https://img.shields.io/badge/platform-Raspberry%20Pi%20%2F%20Linux-green)
 ![Use](https://img.shields.io/badge/use-private%20hobbyist%20LAN-orange)
@@ -59,7 +59,7 @@ It is designed for a Raspberry Pi-style board sitting on your trusted home netwo
 Current documented version:
 
 ```text
-1.2.32 crt-themes
+1.2.33 dashboard-metrics-thumbnail
 ```
 
 Major current capabilities:
@@ -1050,6 +1050,14 @@ cc2-dash-lite/
 ---
 
 ## Release notes
+
+### v1.2.33 dashboard metrics and G-code thumbnails
+
+- Dashboard Print Status now attempts to populate **Filament Used** from additional stock/firmware field names including `totalFilamentUsed`, material weight, and filament length aliases. If firmware does not publish a usable value, the UI still shows `-` rather than inventing one.
+- Expanded Print Status now shows layer progress when available, such as `120/450`.
+- Added optional dashboard G-code thumbnail preview for the active file. The preview only appears when the printer returns a usable thumbnail image.
+- Clicking the thumbnail opens a larger themed glass modal with a close button.
+- Added **Settings → Dashboard Layout → G-code thumbnail preview** to show/hide the thumbnail section.
 
 ### v1.2.32 crt themes
 

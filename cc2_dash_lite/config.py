@@ -69,7 +69,7 @@ def public_printer_dict(cfg: PrinterConfig, include_secret: bool = False) -> dic
     return data
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "config_version": 3,
+    "config_version": 4,
     "app": {
         "name": "cc2-dash-lite",
         "bind_host": "0.0.0.0",
@@ -179,6 +179,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "camera_autoload": True,
         "show_footer": True,
         "compact_mode": False,
+        "show_gcode_thumbnail": True,
         "cards": [
             {"id": "camera_status", "label": "Camera + Status", "enabled": True, "order": 10},
             {"id": "quick_actions", "label": "Quick Actions", "enabled": True, "order": 20},
@@ -291,7 +292,9 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         # filament/CANVAS support is ready for normal use.
         if old_version < 3:
             features["filament_manager_enabled"] = False
-        cfg["config_version"] = 3
+        dashboard = cfg.setdefault("dashboard", {})
+        dashboard.setdefault("show_gcode_thumbnail", True)
+        cfg["config_version"] = 4
     except Exception:
         pass
     try:

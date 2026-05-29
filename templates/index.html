@@ -53,9 +53,10 @@
 
         <hr />
 
-        <div class="status-grid four">
+        <div class="status-grid five">
           <div><strong>Print Time</strong><span id="printTime">-</span></div>
           <div><strong>Time Left</strong><span id="timeLeft">-</span></div>
+          <div><strong>Layer</strong><span id="layerProgress">-</span></div>
           <div><strong>Filament Used</strong><span id="filamentUsed">-</span></div>
           <div><strong>Speed</strong><span id="currentSpeed">-</span></div>
         </div>
@@ -73,6 +74,16 @@
         <div class="file-line">
           <strong>File</strong>
           <span id="fileName">-</span>
+        </div>
+
+        <div id="gcodeThumbnailCard" class="gcode-thumbnail-card hidden" aria-live="polite">
+          <div class="gcode-thumbnail-header">
+            <strong>G-code Thumbnail</strong>
+            <small>Tap to enlarge</small>
+          </div>
+          <button id="gcodeThumbnailButton" class="gcode-thumbnail-button" type="button" aria-label="Open larger G-code thumbnail">
+            <img id="gcodeThumbnailImg" class="gcode-thumbnail-img" alt="G-code thumbnail preview" />
+          </button>
         </div>
 
         <a class="button primary full" id="portalButton" href="{{ printer.portal_url if printer else '/setup' }}" target="_blank" rel="noreferrer">Go To Elegoo Web Portal</a>
@@ -159,4 +170,19 @@
     {% endif %}
   {% endfor %}
 </section>
+
+<div id="gcodeThumbnailModal" class="modal-backdrop thumbnail-modal hidden" role="dialog" aria-modal="true" aria-labelledby="gcodeThumbnailModalTitle">
+  <div class="modal-card thumbnail-modal-card">
+    <div class="modal-header">
+      <div>
+        <h2 id="gcodeThumbnailModalTitle">G-code Thumbnail</h2>
+        <p id="gcodeThumbnailModalFile">Current print preview</p>
+      </div>
+      <button id="gcodeThumbnailModalClose" class="icon-button" type="button" aria-label="Close">×</button>
+    </div>
+    <div class="thumbnail-modal-body">
+      <img id="gcodeThumbnailModalImg" class="thumbnail-modal-img" alt="Large G-code thumbnail preview" />
+    </div>
+  </div>
+</div>
 {% endblock %}

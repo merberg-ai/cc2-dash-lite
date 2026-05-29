@@ -75,6 +75,17 @@
     <div class="settings-panel-body">
     <p class="muted">Enable/disable cards and change their order. Lower numbers appear first.</p>
     <div id="cardSettings" class="settings-list"></div>
+    <div class="settings-list compact-settings-list">
+      <div class="setting-row">
+        <div>
+          <strong>G-code thumbnail preview</strong>
+          <small>Shows the active file thumbnail on the dashboard when the printer/firmware provides one.</small>
+        </div>
+        <div class="setting-controls">
+          <label><input id="dashboardShowGcodeThumbnail" class="toggle" type="checkbox" {% if cfg.dashboard.show_gcode_thumbnail|default(true) %}checked{% endif %}> show</label>
+        </div>
+      </div>
+    </div>
     </div>
   </details>
 

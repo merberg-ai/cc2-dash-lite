@@ -237,17 +237,11 @@ def print_speed_params(mode: int) -> Dict[str, Any]:
 
 
 def auto_refill_params(enabled: bool) -> Dict[str, Any]:
-    value = 1 if enabled else 0
-    # Firmware builds have used slightly different field names for the same
-    # switch. Send the known/obvious aliases; the printer ignores unknown keys.
-    return {
-        "enable": bool(enabled),
-        "enabled": bool(enabled),
-        "auto_refill": value,
-        "autoRefill": value,
-        "status": value,
-        "switch": value,
-    }
+    # Stock local portal shape for method 2004:
+    # { auto_refill: <boolean> }
+    # Keep this deliberately strict; CC2 firmware has proven picky about
+    # friendly alias fields on other stock-portal commands.
+    return {"auto_refill": bool(enabled)}
 
 
 

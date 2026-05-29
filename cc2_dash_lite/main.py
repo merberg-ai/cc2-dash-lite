@@ -245,9 +245,10 @@ def _idle_ai_result(printer_id: str, status: dict[str, Any], cfg: dict[str, Any]
     return portal_ai.set_cached_result(printer_id, result)
 
 FILAMENT_TRAY_STATUS = {
+    # Matches the stock portal enum: Empty=0, preViewLoad=1, loaded=2.
     0: "empty",
-    1: "loaded",
-    2: "unavailable",
+    1: "preview load",
+    2: "loaded",
     3: "ready",
     4: "rfid detecting",
     5: "busy",
@@ -278,6 +279,31 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, dict):
         return list(value.values())
     return []
+
+
+def _find_first_key(node: Any, *keys: str, depth: int = 0, max_depth: int = 5) -> Any:
+    """Find the first exact-ish key match in a small nested status blob."""
+    if node is None or depth > max_depth:
+        return None
+    wanted = set()
+    for key in keys:
+        if not key:
+            continue
+        wanted.update({key, key.lower(), key.upper(), key[:1].lower() + key[1:], key[:1].upper() + key[1:]})
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in wanted:
+                return value
+        for value in node.values():
+            found = _find_first_key(value, *keys, depth=depth + 1, max_depth=max_depth)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        for item in node[:16]:
+            found = _find_first_key(item, *keys, depth=depth + 1, max_depth=max_depth)
+            if found is not None:
+                return found
+    return None
 
 
 def _find_filament_root(node: Any, depth: int = 0) -> dict[str, Any] | None:
@@ -320,9 +346,9 @@ def _boolish(value: Any) -> bool | None:
     if isinstance(value, (int, float)):
         return bool(value)
     text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "on", "enabled", "enable"}:
+    if text in {"1", "true", "yes", "on", "enabled", "enable", "filament", "detected", "present", "loaded", "load"}:
         return True
-    if text in {"0", "false", "no", "off", "disabled", "disable"}:
+    if text in {"0", "false", "no", "off", "disabled", "disable", "none", "empty", "no_filament", "nofilament", "runout", "/"}:
         return False
     return None
 
@@ -357,7 +383,7 @@ def _normalize_tray(tray: dict[str, Any], mms_id: str = "", index: int = 0) -> d
     fname = _dig(tray, "filamentName", "filament_name", "name", "displayName", "display_name", "settingName", "setting_name", default="")
     color = _color_value(_dig(tray, "filamentColor", "filament_color", "filamentColour", "filament_colour", "color", "Colour", "Color"))
     vendor = _dig(tray, "vendor", "brand", "filamentBrand", "filament_brand", "manufacturer", default="")
-    active = status_code in (1, 3) or bool(ftype or fname)
+    active = status_code in (1, 2, 3) or bool(ftype or fname)
     return {
         "mms_id": str(_dig(tray, "mmsId", "mms_id", "canvasId", "canvas_id", default=mms_id) or mms_id),
         "canvas_id": str(_dig(tray, "canvasId", "canvas_id", "mmsId", "mms_id", default=mms_id if str(mms_id).isdigit() else "0") or "0"),
@@ -384,6 +410,53 @@ def _normalize_tray(tray: dict[str, Any], mms_id: str = "", index: int = 0) -> d
         "filament_code": str(_dig(tray, "filamentCode", "filament_code", "settingId", default="") or ""),
         "raw": tray,
     }
+
+
+def _filament_idle_state(snapshot: dict[str, Any] | None) -> dict[str, Any]:
+    snapshot = snapshot or {}
+    n = (snapshot.get("normalized") or {}) if isinstance(snapshot, dict) else {}
+    state = str(n.get("state") or "unknown")
+    sub_state = str(n.get("sub_state") or "")
+    status_stub = {
+        "state": state,
+        "status_text": sub_state,
+        "progress": n.get("progress"),
+        "file": n.get("file"),
+        "hotend_target": (((n.get("temps") or {}).get("nozzle") or {}).get("target")),
+        "bed_target": (((n.get("temps") or {}).get("bed") or {}).get("target")),
+    }
+    active_print = _status_looks_active_print(status_stub, snapshot)
+    machine_code = n.get("status_code")
+    sub_code = n.get("sub_status_code")
+    try:
+        machine_code = int(machine_code) if machine_code is not None else None
+    except Exception:
+        machine_code = None
+    try:
+        sub_code = int(sub_code) if sub_code is not None else None
+    except Exception:
+        sub_code = None
+    state_text = f"{state} {sub_state}".strip().lower()
+    explicit_idle = (machine_code in IDLE_MACHINE_STATUS_CODES and (sub_code is None or sub_code in IDLE_SUB_STATUS_CODES)) or ("idle" in state_text and "print" not in state_text) or ("completed" in state_text)
+    filament_busy = any(word in state_text for word in ("filament operating", "extruder operating", "preheating", "loading", "unloading"))
+    printer_idle = bool(explicit_idle and not active_print and not filament_busy)
+    return {
+        "active_print": bool(active_print),
+        "printer_idle": printer_idle,
+        "state": state,
+        "sub_state": sub_state,
+        "status_code": machine_code,
+        "sub_status_code": sub_code,
+    }
+
+
+def _require_filament_idle(printer_id: str) -> dict[str, Any]:
+    snap = runtime.snapshot(printer_id) or {}
+    idle = _filament_idle_state(snap)
+    if not idle.get("printer_idle"):
+        label = " / ".join(x for x in (idle.get("state"), idle.get("sub_state")) if x) or "not idle"
+        raise HTTPException(409, f"Filament load/unload/edit is only available while the printer is idle. Current state: {label}.")
+    return idle
 
 
 def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -431,6 +504,34 @@ def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict
         })
 
     sensor = (normalized.get("filament") or {}) if isinstance(normalized, dict) else {}
+    idle_state = _filament_idle_state(snapshot)
+    sensor_enabled = _boolish(sensor.get("sensor_enabled"))
+    sensor_detected = _boolish(sensor.get("detected"))
+    # Firmware builds expose the runout sensor through a few different status
+    # paths. The normalized telemetry path is preferred, then we cautiously
+    # scan the raw status blob for stock-style field names before giving up.
+    if sensor_enabled is None:
+        sensor_enabled = _boolish(_find_first_key(
+            raw_status,
+            "filament_detect_enable", "filament_detect_enabled",
+            "filamentDetectEnable", "filamentDetectEnabled",
+            "filament_sensor_enable", "filamentSensorEnable",
+            "filament_sensor_enabled", "filamentSensorEnabled",
+            "runoutSensorEnabled", "filamentRunoutSensorEnabled",
+            max_depth=4,
+        ))
+    if sensor_detected is None:
+        sensor_detected = _boolish(_find_first_key(
+            raw_status,
+            "filament_detected", "filament_detect",
+            "filamentDetected", "filamentDetect",
+            "filament_sensor_detected", "filamentSensorDetected",
+            "filament_sensor_status", "filamentSensorStatus",
+            "has_filament", "hasFilament",
+            "filament_state", "filamentState",
+            "runoutStatus",
+            max_depth=4,
+        ))
     return {
         "ok": True,
         "printer": {
@@ -448,9 +549,13 @@ def _extract_filament_info(snapshot: dict[str, Any] | None, command_result: dict
         "tray_count": len(trays_flat),
         "active_count": sum(1 for t in trays_flat if t.get("active")),
         "sensor": {
-            "enabled": sensor.get("sensor_enabled"),
-            "detected": sensor.get("detected"),
+            "enabled": sensor_enabled,
+            "detected": sensor_detected,
         },
+        "active_print": idle_state.get("active_print"),
+        "printer_idle": idle_state.get("printer_idle"),
+        "printer_state": idle_state.get("state"),
+        "printer_sub_state": idle_state.get("sub_state"),
         "source": "canvas_status" if root else "telemetry_only",
         "raw_available": bool(root),
         "raw": root or {},
@@ -1886,9 +1991,15 @@ async def api_filaments_refresh(printer_id: str):
 
 @app.post("/api/printers/{printer_id}/filaments/auto-refill")
 async def api_filaments_auto_refill(printer_id: str, body: FilamentAutoRefillRequest):
-    result = await asyncio.to_thread(_send_command, printer_id, SET_AUTO_REFILL, auto_refill_params(body.enabled), True, 12.0, False)
+    result = await asyncio.to_thread(_send_command, printer_id, SET_AUTO_REFILL, auto_refill_params(body.enabled), True, 12.0, True)
     log("info", f"Auto filament refill set to {'on' if body.enabled else 'off'}", "filament", printer=printer_id)
     info = await api_filaments(printer_id, refresh=True)
+    # The printer can report stale canvas_info for a moment after the command.
+    # Keep the fresh report for debugging, but reflect the successful requested
+    # state immediately in the UI; the frontend performs another refresh shortly
+    # after this response to reconcile with firmware.
+    info["reported_auto_refill"] = info.get("auto_refill")
+    info["auto_refill"] = bool(body.enabled)
     info["command_result"] = result
     info["requested_auto_refill"] = body.enabled
     return info
@@ -1896,8 +2007,9 @@ async def api_filaments_auto_refill(printer_id: str, body: FilamentAutoRefillReq
 
 @app.post("/api/printers/{printer_id}/filaments/load")
 async def api_filaments_load(printer_id: str, body: FilamentMotionRequest):
+    _require_filament_idle(printer_id)
     params = filament_motion_params(body.canvas_id, body.tray_id)
-    result = await asyncio.to_thread(_send_command, printer_id, LOAD_FILAMENT, params, True, 300.0, False)
+    result = await asyncio.to_thread(_send_command, printer_id, LOAD_FILAMENT, params, True, 300.0, True)
     log("info", f"Requested CANVAS load for slot {params.get('tray_id')}", "filament", printer=printer_id)
     info = await api_filaments(printer_id, refresh=True)
     info["command_result"] = result
@@ -1908,8 +2020,9 @@ async def api_filaments_load(printer_id: str, body: FilamentMotionRequest):
 
 @app.post("/api/printers/{printer_id}/filaments/unload")
 async def api_filaments_unload(printer_id: str, body: FilamentMotionRequest):
+    _require_filament_idle(printer_id)
     params = filament_motion_params(body.canvas_id, body.tray_id)
-    result = await asyncio.to_thread(_send_command, printer_id, UNLOAD_FILAMENT, params, True, 300.0, False)
+    result = await asyncio.to_thread(_send_command, printer_id, UNLOAD_FILAMENT, params, True, 300.0, True)
     log("info", f"Requested CANVAS unload for slot {params.get('tray_id')}", "filament", printer=printer_id)
     info = await api_filaments(printer_id, refresh=True)
     info["command_result"] = result
@@ -1920,8 +2033,9 @@ async def api_filaments_unload(printer_id: str, body: FilamentMotionRequest):
 
 @app.post("/api/printers/{printer_id}/filaments/edit")
 async def api_filaments_edit(printer_id: str, body: FilamentInfoRequest):
+    _require_filament_idle(printer_id)
     params = filament_info_params(model_to_dict(body))
-    result = await asyncio.to_thread(_send_command, printer_id, SET_FILAMENT_INFO, params, True, 20.0, False)
+    result = await asyncio.to_thread(_send_command, printer_id, SET_FILAMENT_INFO, params, True, 20.0, True)
     log("info", f"Updated CANVAS slot {params.get('tray_id')} filament to {params.get('filament_name')} {params.get('filament_color')}", "filament", printer=printer_id)
     info = await api_filaments(printer_id, refresh=True)
     info["command_result"] = result
@@ -1932,8 +2046,9 @@ async def api_filaments_edit(printer_id: str, body: FilamentInfoRequest):
 
 @app.post("/api/printers/{printer_id}/filaments/mono/edit")
 async def api_filaments_mono_edit(printer_id: str, body: FilamentInfoRequest):
+    _require_filament_idle(printer_id)
     params = mono_filament_info_params(model_to_dict(body))
-    result = await asyncio.to_thread(_send_command, printer_id, SET_MONO_FILAMENT_INFO, params, True, 20.0, False)
+    result = await asyncio.to_thread(_send_command, printer_id, SET_MONO_FILAMENT_INFO, params, True, 20.0, True)
     log("info", f"Updated mono filament to {params.get('filament_name')} {params.get('filament_color')}", "filament", printer=printer_id)
     info = await api_filaments(printer_id, refresh=True)
     info["command_result"] = result

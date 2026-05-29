@@ -1502,6 +1502,8 @@
   const filamentState = {
     lastData: null,
     selectedTray: null,
+    printerIdle: false,
+    activePrint: false,
   };
 
   const FILAMENT_PRESETS = {
@@ -1559,6 +1561,46 @@
     return /^#[0-9a-fA-F]{6}$/.test(value) ? value.toUpperCase() : '#8B8F9A';
   }
 
+  function filamentDisplayOrder(tray, fallbackIndex = 99) {
+    const slot = Number(tray?.slot_number ?? (Number(tray?.tray_id) >= 0 ? Number(tray.tray_id) + 1 : fallbackIndex + 1));
+    const order = { 1: 0, 4: 1, 2: 2, 3: 3 };
+    return Object.prototype.hasOwnProperty.call(order, slot) ? order[slot] : 50 + fallbackIndex;
+  }
+
+  function sortedFilamentTrays(trays) {
+    return [...(trays || [])].sort((a, b) => {
+      const av = filamentDisplayOrder(a, 0);
+      const bv = filamentDisplayOrder(b, 0);
+      if (av !== bv) return av - bv;
+      return Number(a?.slot_number || a?.tray_id || 0) - Number(b?.slot_number || b?.tray_id || 0);
+    });
+  }
+
+  function filamentControlsAllowed() {
+    return filamentState.printerIdle === true && filamentState.activePrint !== true;
+  }
+
+  function setFilamentIdleGuard(data) {
+    const guard = $('#filamentIdleGuard');
+    if (!guard) return;
+    const idle = data?.printer_idle === true;
+    const state = [data?.printer_state, data?.printer_sub_state].filter(Boolean).join(' / ') || 'unknown';
+    guard.classList.toggle('hidden', idle);
+    guard.textContent = idle
+      ? ''
+      : `Filament load/unload/edit controls are locked until the printer is idle. Current state: ${state}.`;
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function refreshFilamentsAfterCommand(delayMs = 900) {
+    await sleep(delayMs);
+    return loadFilaments(true, null, { notify: false });
+  }
+
+
   function updateFilamentSelection(tray) {
     filamentState.selectedTray = tray || null;
     $$('.filament-tray').forEach(card => {
@@ -1566,23 +1608,33 @@
     });
     const selected = $('#selectedFilamentSlot');
     if (selected) selected.textContent = tray ? `${tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`}` : 'none';
-    const canUse = !!tray;
+    const canUse = !!tray && filamentControlsAllowed();
     ['loadFilamentButton', 'unloadFilamentButton', 'editFilamentButton'].forEach(id => {
       const btn = $('#' + id);
-      if (btn) btn.disabled = !canUse;
+      if (btn) {
+        btn.disabled = !canUse;
+        btn.title = canUse ? '' : (tray ? 'Filament controls are available only while the printer is idle.' : 'Select a filament slot first.');
+      }
     });
   }
 
   function renderFilaments(data) {
     filamentState.lastData = data || null;
     filamentState.selectedTray = null;
+    filamentState.printerIdle = data?.printer_idle === true;
+    filamentState.activePrint = data?.active_print === true;
     const list = $('#filamentList');
     const trays = data?.trays || [];
+    setFilamentIdleGuard(data);
     setText('filamentSystemName', data?.system_name || 'CANVAS');
     setText('filamentConnected', data?.connected ? 'connected' : (data?.raw_available ? 'reported' : 'unknown'));
     setText('filamentActiveSlots', `${data?.active_count ?? 0} / ${data?.tray_count ?? 0}`);
     const sensor = data?.sensor || {};
-    const sensorText = sensor.enabled === false ? 'disabled' : (sensor.detected === true ? 'detected' : (sensor.detected === false ? 'not detected' : 'unknown'));
+    const sensorEnabled = sensor.enabled === true || sensor.enabled === 1 || sensor.enabled === '1';
+    const sensorDisabled = sensor.enabled === false || sensor.enabled === 0 || sensor.enabled === '0';
+    const sensorDetected = sensor.detected === true || sensor.detected === 1 || sensor.detected === '1';
+    const sensorEmpty = sensor.detected === false || sensor.detected === 0 || sensor.detected === '0';
+    const sensorText = sensorDisabled ? 'disabled' : (sensorDetected ? 'filament present' : (sensorEmpty ? 'no filament' : (sensorEnabled ? 'enabled / unknown' : 'unknown')));
     setText('filamentSensor', sensorText);
     const refill = data?.auto_refill;
     const refillEl = $('#autoRefillState');
@@ -1600,7 +1652,7 @@
     const groups = data?.mms_list?.length ? data.mms_list : [{ mms_id: '0', mms_name: data?.system_name || 'CANVAS', trays }];
     list.className = 'filament-list';
     list.innerHTML = groups.map(group => {
-      const groupTrays = group.trays || [];
+      const groupTrays = sortedFilamentTrays(group.trays || []);
       return `<section class="mms-card">
         <div class="mms-head">
           <div><strong>${esc(group.mms_name || group.mms_id || 'CANVAS')}</strong><span>${esc(group.active_count ?? groupTrays.filter(t => t.active).length)} active · ${esc(group.tray_count ?? groupTrays.length)} slot(s)</span></div>
@@ -1640,7 +1692,7 @@
     });
   }
 
-  async function loadFilaments(refresh = false, button = null) {
+  async function loadFilaments(refresh = false, button = null, options = {}) {
     const list = $('#filamentList');
     const loading = $('#filamentLoadStatus');
     setBoxLoading(list, loading, true, 'Loading filament data...');
@@ -1649,7 +1701,7 @@
       const data = await printerApi(refresh ? '/filaments/refresh' : '/filaments', { method: refresh ? 'POST' : 'GET' });
       renderFilaments(data);
       const count = data?.tray_count ?? 0;
-      toast(count ? `Loaded ${count} filament tray slot(s).` : 'No CANVAS filament trays reported yet.', count ? 'success' : 'warn');
+      if (options.notify !== false) toast(count ? `Loaded ${count} filament tray slot(s).` : 'No CANVAS filament trays reported yet.', count ? 'success' : 'warn');
       return data;
     } catch (err) {
       renderEmpty(list, 'Filament load failed.', err.message);
@@ -1666,7 +1718,8 @@
     try {
       const data = await printerApi('/filaments/auto-refill', { method: 'POST', body: JSON.stringify({ enabled }) });
       renderFilaments(data);
-      toast(`Auto Filament Refill ${enabled ? 'enabled' : 'disabled'}.`, 'success');
+      toast(`Auto Filament Refill ${enabled ? 'enabled' : 'disabled'}. Refreshing printer report...`, 'success');
+      refreshFilamentsAfterCommand(1200).catch(err => toast(`Auto-refill refresh failed: ${err.message}`, 'warn', 8000));
     } catch (err) {
       toast(err.message, 'error', 9000);
     } finally {
@@ -1684,13 +1737,15 @@
   async function runFilamentMotion(action, button) {
     const tray = filamentState.selectedTray;
     if (!tray) return toast('Select a filament slot first.', 'warn');
+    if (!filamentControlsAllowed()) return toast('Filament load/unload is locked until the printer is idle.', 'warn', 8000);
     const label = tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`;
     if (!confirm(`${action === 'load' ? 'Load/feed' : 'Unload'} filament for ${label}?\n\nThis uses the same CANVAS command shape as the stock portal and requires printer commands to be enabled.`)) return;
     setButtonBusy(button, true, action === 'load' ? 'Loading...' : 'Unloading...');
     try {
       const data = await printerApi(`/filaments/${action}`, { method: 'POST', body: JSON.stringify(filamentCommandPayload(tray)) });
       renderFilaments(data);
-      toast(`${action === 'load' ? 'Load/feed' : 'Unload'} command sent for ${label}.`, 'success', 6500);
+      toast(`${action === 'load' ? 'Load/feed' : 'Unload'} command sent for ${label}. Refreshing printer report...`, 'success', 6500);
+      refreshFilamentsAfterCommand(1500).catch(err => toast(`Filament refresh failed: ${err.message}`, 'warn', 8000));
     } catch (err) {
       toast(err.message, 'error', 10000);
     } finally {
@@ -1715,6 +1770,7 @@
   function openFilamentEditModal() {
     const tray = filamentState.selectedTray;
     if (!tray) return toast('Select a filament slot first.', 'warn');
+    if (!filamentControlsAllowed()) return toast('Filament editing is locked until the printer is idle.', 'warn', 8000);
     const modal = $('#filamentEditModal');
     if (!modal) return;
     const label = tray.tray_name || `Slot ${tray.slot_number || tray.tray_id}`;
@@ -1747,6 +1803,7 @@
   async function saveFilamentEdit(button) {
     const tray = filamentState.selectedTray;
     if (!tray) return toast('Select a filament slot first.', 'warn');
+    if (!filamentControlsAllowed()) return toast('Filament editing is locked until the printer is idle.', 'warn', 8000);
     const body = {
       canvas_id: tray.canvas_id ?? 0,
       tray_id: tray.tray_id ?? 0,
@@ -1763,7 +1820,8 @@
       const data = await printerApi('/filaments/edit', { method: 'POST', body: JSON.stringify(body) });
       closeFilamentEditModal();
       renderFilaments(data);
-      toast(`Updated ${tray.tray_name || 'slot'} to ${body.filament_name}.`, 'success');
+      toast(`Updated ${tray.tray_name || 'slot'} to ${body.filament_name}. Refreshing printer report...`, 'success');
+      refreshFilamentsAfterCommand(1200).catch(err => toast(`Filament refresh failed: ${err.message}`, 'warn', 8000));
     } catch (err) {
       toast(err.message, 'error', 10000);
     } finally {

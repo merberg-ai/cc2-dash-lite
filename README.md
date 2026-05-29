@@ -1,5 +1,14 @@
 # cc2-dash-lite
 
+### v1.2.30 filament polish + idle guards
+
+- Reordered CANVAS slot display to match the stock portal's physical layout: **1, 4, 2, 3**.
+- Filament load/feed, unload, and edit controls are now enabled only while the printer is idle; the backend also rejects those actions if the printer is printing or in a filament/extruder operation state.
+- Filament edit, load/unload, and Auto Filament Refill actions now refresh from the printer after the command so the UI reconciles with firmware state.
+- Auto Filament Refill now sends the strict stock payload `{ "auto_refill": true/false }` instead of extra aliases.
+- Filament sensor normalization now handles numeric `0/1` reports and additional stock-style/raw status paths, reducing false **unknown** display states.
+- CANVAS load/unload/edit commands now fail loudly when firmware returns an error instead of showing a fake success.
+
 ### v1.2.29 filament CANVAS controls
 
 - Filament Manager now mirrors more of the stock Elegoo CANVAS tooling instead of only displaying passive tray cards.
@@ -315,14 +324,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.29-filament-canvas-controls.zip
+unzip cc2-dash-lite-1.2.30-filament-polish.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.29-status-header-filament-hidden cc2-dash-lite
+mv cc2-dash-lite-1.2.30-filament-polish cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -678,7 +687,7 @@ auto_refill / auto_fill state
 The page currently supports:
 
 - Summary tiles.
-- Selectable CANVAS tray cards.
+- Selectable CANVAS tray cards, displayed in the stock-style physical order **1, 4, 2, 3**.
 - Filament color representation using the printer-reported color.
 - Filament sensor state.
 - Auto Filament Refill enable/disable using method `2004`.
@@ -703,7 +712,7 @@ The edit dialog sends the stock-style CANVAS payload:
 }
 ```
 
-These controls are treated as command-enabled actions rather than dangerous print actions. The printer still needs commands enabled in **Settings → Printer Manager**. Load/feed and unload physically move filament, so keep eyes on the printer and use the stock portal as a fallback if firmware behavior looks odd.
+These controls are treated as command-enabled actions rather than dangerous print actions. The printer still needs commands enabled in **Settings → Printer Manager**. Load/feed, unload, and edit are locked unless the printer is idle, and the backend rejects them if an active print or filament/extruder operation is detected. Load/feed and unload physically move filament, so keep eyes on the printer and use the stock portal as a fallback if firmware behavior looks odd.
 
 If the Combo/CANVAS system does not report tray data yet, the page falls back to telemetry-only information and states that no filament data was available. Use **Refresh** after the printer has had time to publish telemetry.
 
@@ -985,6 +994,14 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.30
+
+- Reordered Filament Manager slot cards to the stock-style physical layout: **1, 4, 2, 3**.
+- Added idle-only UI and backend guards for Filament Manager load/feed, unload, and edit operations.
+- Added post-command printer refresh after filament edit, load/unload, and Auto Filament Refill changes.
+- Tightened Auto Filament Refill to the stock method-`2004` payload shape: `{ "auto_refill": true/false }`.
+- Improved filament sensor normalization for stock `0/1` reports and alternate status paths.
 
 ### v1.2.29
 

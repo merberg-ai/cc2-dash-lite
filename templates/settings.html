@@ -282,7 +282,7 @@
       </div>
       <div class="setting-row">
         <div><strong>Heuristic thresholds</strong><small>Dark luma threshold and fine-edge density threshold. Lower dark = less sensitive; lower edge = more sensitive.</small></div>
-        <div class="setting-controls compact-inline"><input id="aiVisionDarkMeanThreshold" class="input" type="number" min="0" max="120" step="1" value="{{ cfg.portal_ai.vision_dark_mean_threshold|default(42) }}"><input id="aiVisionStringingEdgeThreshold" class="input" type="number" min="0.02" max="0.5" step="0.005" value="{{ cfg.portal_ai.vision_stringing_edge_density_threshold|default(0.125) }}"></div>
+        <div class="setting-controls compact-inline"><input id="aiVisionDarkMeanThreshold" class="input" type="number" min="0" max="120" step="1" value="{{ cfg.portal_ai.vision_dark_mean_threshold|default(58) }}"><input id="aiVisionStringingEdgeThreshold" class="input" type="number" min="0.02" max="0.5" step="0.005" value="{{ cfg.portal_ai.vision_stringing_edge_density_threshold|default(0.125) }}"></div>
       </div>
       <div class="setting-row">
         <div><strong>Vision thresholds</strong><small>Minimum confidence/severity before a model result counts as suspicious.</small></div>
@@ -319,8 +319,16 @@
         <div class="setting-controls"><input id="aiStaleStatusSeconds" class="input" type="number" min="15" max="600" step="5" value="{{ cfg.portal_ai.stale_status_seconds }}"></div>
       </div>
       <div class="setting-row">
-        <div><strong>Feedback buttons</strong><small>Allows Looks Good / Looks Bad / False Alarm labels for future tuning.</small></div>
+        <div><strong>Feedback buttons</strong><small>Allows Looks Good / Looks Bad / False Alarm labels for review data and current-print learning.</small></div>
         <div class="setting-controls"><label><input id="aiFeedbackEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.feedback_enabled %}checked{% endif %}> show</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>False-alarm suppression</strong><small>Uses Looks Good / False Alarm to mute similar low-severity warnings for the same active print only. It does not overwrite your heuristic thresholds.</small></div>
+        <div class="setting-controls"><label><input id="aiFeedbackSuppressionEnabled" class="toggle" type="checkbox" {% if cfg.portal_ai.feedback_suppression_enabled|default(true) %}checked{% endif %}> enabled</label></div>
+      </div>
+      <div class="setting-row">
+        <div><strong>Suppression limits</strong><small>Hours before a same-print suppression expires, and max severity allowed to be suppressed.</small></div>
+        <div class="setting-controls compact-inline"><input id="aiFeedbackSuppressionTtlHours" class="input" type="number" min="0.5" max="72" step="0.5" value="{{ cfg.portal_ai.feedback_suppression_ttl_hours|default(18) }}"><input id="aiFeedbackSuppressionMaxSeverity" class="input" type="number" min="10" max="95" step="5" value="{{ cfg.portal_ai.feedback_suppression_max_severity|default(65) }}"></div>
       </div>
       <div class="setting-row">
         <div><strong>Auto-pause</strong><small>Planned safety action. Stored in config, but this build does not auto-pause yet.</small></div>

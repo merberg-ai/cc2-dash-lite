@@ -354,8 +354,10 @@
               }
             })
           });
-          const frameMsg = data?.frame?.captured ? ' + frame captured' : ' (no frame yet)';
-          toast(`Portal AI feedback saved${frameMsg}`, data?.frame?.captured ? 'success' : 'warn');
+          const frameMsg = data?.frame?.captured ? (data.frame.fresh ? ' + fresh frame captured' : ' + cached frame saved') : ' (no frame yet)';
+          const outcome = data?.interpretation?.outcome ? ` · ${String(data.interpretation.outcome).replace(/_/g, ' ')}` : '';
+          const supMsg = data?.suppression ? ' · similar warnings muted for this print' : '';
+          toast(`Portal AI feedback saved${frameMsg}${outcome}${supMsg}`, data?.frame?.captured ? 'success' : 'warn', data?.suppression ? 6500 : 4500);
         } catch (err) {
           toast(err.message, 'error', 7000);
         } finally {
@@ -1134,6 +1136,9 @@
       cfg.portal_ai.multi_color_progress_stuck_minutes = Number($('#aiMultiColorStuckMinutes')?.value || 30);
       cfg.portal_ai.stale_status_seconds = Number($('#aiStaleStatusSeconds')?.value || 75);
       cfg.portal_ai.feedback_enabled = !!$('#aiFeedbackEnabled')?.checked;
+      cfg.portal_ai.feedback_suppression_enabled = !!$('#aiFeedbackSuppressionEnabled')?.checked;
+      cfg.portal_ai.feedback_suppression_ttl_hours = Number($('#aiFeedbackSuppressionTtlHours')?.value || 18);
+      cfg.portal_ai.feedback_suppression_max_severity = Number($('#aiFeedbackSuppressionMaxSeverity')?.value || 65);
       cfg.portal_ai.auto_pause_enabled = !!$('#aiAutoPauseEnabled')?.checked;
       cfg.portal_ai.auto_pause_threshold = Number($('#aiAutoPauseThreshold')?.value || 90);
 
@@ -1270,6 +1275,9 @@
       cfg.portal_ai.multi_color_progress_stuck_minutes = Number($('#aiMultiColorStuckMinutes')?.value || 30);
       cfg.portal_ai.stale_status_seconds = Number($('#aiStaleStatusSeconds')?.value || 75);
       cfg.portal_ai.feedback_enabled = !!$('#aiFeedbackEnabled')?.checked;
+      cfg.portal_ai.feedback_suppression_enabled = !!$('#aiFeedbackSuppressionEnabled')?.checked;
+      cfg.portal_ai.feedback_suppression_ttl_hours = Number($('#aiFeedbackSuppressionTtlHours')?.value || 18);
+      cfg.portal_ai.feedback_suppression_max_severity = Number($('#aiFeedbackSuppressionMaxSeverity')?.value || 65);
       cfg.portal_ai.auto_pause_enabled = !!$('#aiAutoPauseEnabled')?.checked;
       cfg.portal_ai.auto_pause_threshold = Number($('#aiAutoPauseThreshold')?.value || 90);
       setButtonBusy(saveAI, true, 'Saving...');

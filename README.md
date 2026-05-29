@@ -227,14 +227,8 @@ sudo apt install -y git python3 python3-venv python3-pip
 Replace the URL below with your actual GitHub repository URL if different:
 
 ```bash
-git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
+git clone https://github.com/merberg-ai/cc2-dash-lite.git
 cd cc2-dash-lite
-```
-
-Example if you cloned from your own fork:
-
-```bash
-git clone https://github.com/YOUR-GITHUB-USER/cc2-dash-lite.git
 ```
 
 ### 3. Make helper scripts executable

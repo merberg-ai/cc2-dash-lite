@@ -1,5 +1,11 @@
 # cc2-dash-lite
 
+### v1.2.21 setup wizard copy cleanup
+
+- Trimmed the first-run setup header card down to only the progress bar.
+- Renamed the setup flow wording from the longer intro copy to **Configure cc2-dash** internally and simplified the printer discovery step to **Find printers**.
+- Removed the extra explanatory setup intro paragraph and tightened the scan button copy.
+
 ### v1.2.20 Kiosk camera warm-up fix
 
 - Kiosk now uses a fast cached-status endpoint so the fullscreen camera page does not wait on Portal AI/rule-engine work before updating overlays.
@@ -252,14 +258,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.20.zip
+unzip cc2-dash-lite-1.2.21.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.20 cc2-dash-lite
+mv cc2-dash-lite-1.2.21 cc2-dash-lite
 cd cc2-dash-lite
 ```
 

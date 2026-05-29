@@ -573,6 +573,7 @@ body[data-page="settings"] .button.tiny { min-height:2.05rem; }
 }
 .setup-progress-card {
   background:linear-gradient(145deg, color-mix(in srgb, var(--cc2-card) 90%, transparent), color-mix(in srgb, var(--cc2-card-soft) 76%, var(--cc2-primary)));
+  padding:.78rem;
 }
 .setup-progress-top {
   display:flex;
@@ -605,7 +606,7 @@ body[data-page="settings"] .button.tiny { min-height:2.05rem; }
   border-radius:999px;
   background:rgba(255,255,255,.08);
   border:1px solid var(--cc2-border);
-  margin:.9rem 0 .75rem;
+  margin:0;
 }
 .setup-progress-track span {
   display:block;

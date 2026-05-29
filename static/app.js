@@ -253,6 +253,22 @@
       if (progressText) progressText.textContent = `${progress.toFixed(1)}%`;
       if (summaryProgressBar) summaryProgressBar.style.width = `${progress}%`;
       if (summaryProgressText) summaryProgressText.textContent = `${progress.toFixed(1)}%`;
+      const activePrint = typeof st.active_print === 'boolean'
+        ? st.active_print
+        : (/print|printing|running|pause|paused|filament operating/i.test(`${st.status_text || ''} ${st.state || ''}`) && !/idle|ready|standby|complete|finished/i.test(`${st.status_text || ''} ${st.state || ''}`));
+      const printSummary = $('#printStatusSummary');
+      const printStatePill = $('#summaryPrintState');
+      if (printSummary) {
+        printSummary.classList.toggle('printing', !!activePrint);
+        printSummary.classList.toggle('idle', !activePrint);
+      }
+      if (printStatePill) {
+        printStatePill.className = `summary-print-state ${activePrint ? 'printing' : 'idle'}`;
+        printStatePill.textContent = activePrint ? 'PRINTING' : 'IDLE';
+        printStatePill.title = activePrint
+          ? `Active print · ${progress.toFixed(1)}% complete`
+          : 'Printer idle';
+      }
 
       setText('statusText', st.status_text || st.state || 'Unknown');
       renderPortalAI(st.portal_ai || { summary: st.reachable ? 'Standing By' : 'Connection Lost', level: st.reachable ? 'low' : 'watch', risk: st.reachable ? 0 : 35, reasons: [st.message || 'Waiting for printer telemetry.'] });

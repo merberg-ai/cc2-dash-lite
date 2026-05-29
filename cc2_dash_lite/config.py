@@ -69,7 +69,7 @@ def public_printer_dict(cfg: PrinterConfig, include_secret: bool = False) -> dic
     return data
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "config_version": 2,
+    "config_version": 3,
     "app": {
         "name": "cc2-dash-lite",
         "bind_host": "0.0.0.0",
@@ -100,7 +100,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "printers": {},
     "features": {
         "file_manager_enabled": False,
-        "filament_manager_enabled": True,
+        "filament_manager_enabled": False,
         "kiosk_enabled": True,
     },
     "kiosk": {
@@ -286,7 +286,12 @@ def migrate_config(cfg: dict[str, Any]) -> dict[str, Any]:
         features = cfg.setdefault("features", {})
         if old_version < 2:
             features["file_manager_enabled"] = False
-        cfg["config_version"] = 2
+        # v1.2.28: Filament Manager is still experimental. Keep the route and
+        # settings available, but hide the top-nav entry by default until the
+        # filament/CANVAS support is ready for normal use.
+        if old_version < 3:
+            features["filament_manager_enabled"] = False
+        cfg["config_version"] = 3
     except Exception:
         pass
     try:

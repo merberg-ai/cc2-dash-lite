@@ -1,5 +1,12 @@
 # cc2-dash-lite
 
+### v1.2.28 collapsed print state + filament hidden by default
+
+- The collapsed **Print Status** header now shows **IDLE** when no active print is detected.
+- When a print is active, the collapsed **Print Status** header shows **PRINTING** alongside the compact progress bar.
+- Filament Manager remains available, but the top navigation item is now hidden by default until the filament/CANVAS work is ready for normal use.
+- Existing older configs migrate once so **Filament** starts hidden; it can still be re-enabled under **Settings → Menu / Features**.
+
 ### v1.2.27 idle status + active-print-only AI
 
 - Normalized idle printer sub-status code `0` so the dashboard shows **Idle** instead of raw **Sub 0**.
@@ -206,6 +213,7 @@ It is not trying to be a hardened production control platform. Keep the stock po
 - Timelapse/history export/download/delete controls where firmware allows it, with a dashboard download proxy for stock printer download URLs.
 - File Manager is hidden by default in the top navigation because some firmware builds appear unreliable around timelapse/video export.
 - Filament Manager page for stock-style CANVAS/MMS filament tray information.
+- Filament Manager is hidden by default in the top navigation until the CANVAS/MMS behavior is polished.
 - Configurable File Manager, Filament Manager, and Kiosk menu visibility.
 
 ### Kiosk mode
@@ -298,14 +306,14 @@ Pillow
 ### 1. Extract the project
 
 ```bash
-unzip cc2-dash-lite-1.2.27-idle-ai-standby.zip
+unzip cc2-dash-lite-1.2.28-status-header-filament-hidden.zip
 cd cc2-dash-lite
 ```
 
 If your extracted folder has a versioned name, either `cd` into that folder or rename it:
 
 ```bash
-mv cc2-dash-lite-1.2.27-idle-ai-standby cc2-dash-lite
+mv cc2-dash-lite-1.2.28-status-header-filament-hidden cc2-dash-lite
 cd cc2-dash-lite
 ```
 
@@ -417,11 +425,11 @@ Primary navigation:
 | **Dash** | Main status view with printer telemetry, camera, quick actions, Portal AI, and cards. |
 | **Portal** | Wrapper view for the bundled stock Elegoo portal. |
 | **Files** | Optional File Manager for printer files, USB files, print history, and Video List records; hidden by default as of v1.2.26. |
-| **Filament** | Optional Filament Manager for CANVAS/MMS tray data. |
+| **Filament** | Optional Filament Manager for CANVAS/MMS tray data; hidden by default as of v1.2.28. |
 | **Settings** | Theme, features, quick actions, Printer Manager, access, and Portal AI settings. |
 | **Logs** | Filterable system, command, scanner, Portal AI, filament, and vision logs. |
 
-The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files is hidden by default in current builds.
+The **Files**, **Filament**, and **Kiosk** menu items can be shown or hidden in **Settings → Menu / Features**. Files and Filament are hidden by default in current builds.
 
 ---
 
@@ -633,7 +641,7 @@ The backend then forwards that to the printer's stock download endpoint. If the 
 
 ## Filament Manager
 
-The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**:
+The Filament Manager is available from the top navigation when enabled in **Settings → Menu / Features**. As of v1.2.28, Filament is hidden by default because this area is still experimental and planned for the next round of work:
 
 ```text
 /filaments
@@ -893,7 +901,7 @@ Vision models analyze still images and can misinterpret whether a printer is act
 
 ### File Manager or Filament Manager returns blank data
 
-These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Re-enable **Files** under **Settings → Menu / Features** only when testing or debugging it. Use the stock portal as the fallback, then check:
+These features depend on firmware-specific stock command responses. File Manager is hidden by default in current builds because the printer's own timelapse/video export behavior may be unreliable. Filament Manager is also hidden by default while the CANVAS/MMS support is still being refined. Re-enable **Files** or **Filament** under **Settings → Menu / Features** only when testing or debugging them. Use the stock portal as the fallback, then check:
 
 ```text
 Logs → command
@@ -910,6 +918,7 @@ Browser console
 - Vision monitoring depends on camera image quality, lighting, model behavior, and Ollama performance.
 - File Manager and Filament Manager support may need firmware-specific refinement.
 - File Manager is hidden by default because some stock firmware builds appear unreliable around timelapse/video export.
+- Filament Manager is hidden by default until the CANVAS/MMS behavior is polished.
 - Some stock portal command responses vary by firmware version.
 - Dangerous actions are intentionally blocked unless explicitly enabled.
 - The frontend does not currently require a Node build pipeline; the `frontend/` folder is reserved for future work.
@@ -942,6 +951,12 @@ The uninstaller now checks normal systemd unit locations, disables/stops the ser
 ---
 
 ## Release notes
+
+### v1.2.28
+
+- Collapsed **Print Status** header now shows **IDLE** when the printer is not actively printing.
+- Collapsed **Print Status** header now shows **PRINTING** plus the compact progress bar while an active print is detected.
+- Filament Manager remains available, but the top navigation item is now hidden by default and older saved configs migrate once to hide it.
 
 ### v1.2.27
 

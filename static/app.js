@@ -1588,62 +1588,152 @@
     }
   }
 
-  async function loadFileList() {
-    const box = $('#fileList');
-    const loading = $('#fileLoadStatus');
-    const btn = $('#refreshFilesButton');
-    const storage = $('#fileStorage')?.value || 'local';
-    const path = $('#filePath')?.value || '/';
-    setBoxLoading(box, loading, true, 'Loading files...');
+  const fileManagerState = {
+    usbPath: '/',
+    loadedTabs: new Set(),
+  };
+
+  function fileIsFolder(file) {
+    const type = String(fileTypeOf(file) || '').toLowerCase();
+    return type === 'folder' || type === 'dir' || type === 'directory' || file?.is_dir === true || file?.IsDir === true;
+  }
+
+  function normalizeDirPath(path) {
+    let value = String(path || '/').trim() || '/';
+    if (!value.startsWith('/')) value = '/' + value;
+    value = value.replace(/\/+/g, '/');
+    if (value !== '/' && !value.endsWith('/')) value += '/';
+    return value;
+  }
+
+  function basename(value) {
+    const text = String(value || '').replace(/\/+/g, '/').replace(/\/$/, '');
+    return text.split('/').filter(Boolean).pop() || text || '';
+  }
+
+  function joinUsbPath(dir, name) {
+    const base = normalizeDirPath(dir || '/');
+    const clean = String(name || '').replace(/^\/+/, '');
+    return normalizeDirPath(base === '/' ? `/${clean}` : `${base}${clean}`);
+  }
+
+  function fullFilePath(file, storage, directory = '/') {
+    const raw = filePathOf(file) || fileNameOf(file);
+    if (storage !== 'u-disk') return raw;
+    if (String(raw || '').startsWith('/')) return raw;
+    const joined = joinUsbPath(directory, raw);
+    return fileIsFolder(file) ? joined : joined.replace(/\/$/, '');
+  }
+
+  function fileMetaLine(file, storage, directory = '/') {
+    const type = fileIsFolder(file) ? 'folder' : (file?.is_gcode ? 'gcode' : fileTypeOf(file));
+    const size = fileIsFolder(file) ? '' : bytesHuman(fileSizeOf(file));
+    const time = fileTimeOf(file);
+    const pathVal = fullFilePath(file, storage, directory);
+    return [type, size, time, pathVal && pathVal !== fileNameOf(file) ? pathVal : ''].filter(Boolean).join(' · ');
+  }
+
+  function historyNameOf(item) {
+    return item?.task_name || item?.TaskName || item?.filename || item?.FileName || item?.name || item?.Name || 'History task';
+  }
+
+  function historyIdOf(item) {
+    return item?.task_id ?? item?.TaskId ?? item?.taskId ?? item?.id ?? item?.Id;
+  }
+
+  function renderFileRows(box, files, storage, directory = '/') {
+    if (!box) return;
+    if (!files.length) {
+      const label = storage === 'u-disk' ? 'No USB files returned.' : 'No printer files returned.';
+      const hint = storage === 'u-disk' ? 'Make sure the USB drive is inserted and mounted, then tap Refresh.' : 'The printer returned an empty local file list.';
+      renderEmpty(box, label, hint);
+      return;
+    }
+    box.className = 'file-list';
+    box.innerHTML = files.map((file, i) => {
+      const name = fileNameOf(file);
+      const folder = fileIsFolder(file);
+      const meta = fileMetaLine(file, storage, directory);
+      const icon = folder ? '📁 ' : '';
+      return `<div class="file-item" data-file-index="${i}">
+        <div class="file-main"><strong>${icon}${esc(name)}</strong><span>${esc(meta || 'file')}</span></div>
+        <div class="file-actions">
+          ${folder && storage === 'u-disk' ? `<button class="button primary tiny" type="button" data-file-open="${i}">Open</button>` : ''}
+          ${!folder ? `<button class="button secondary tiny" type="button" data-file-info="${i}">Info</button>` : ''}
+          ${!folder ? `<button class="button primary tiny" type="button" data-file-print="${i}">Print</button>` : ''}
+          <button class="button danger tiny" type="button" data-file-delete="${i}">Delete</button>
+        </div>
+      </div>`;
+    }).join('');
+    $$('[data-file-open]', box).forEach(el => el.addEventListener('click', () => openUsbFolder(files[Number(el.dataset.fileOpen)])));
+    $$('[data-file-info]', box).forEach(el => el.addEventListener('click', () => showFileDetail(files[Number(el.dataset.fileInfo)], storage, directory)));
+    $$('[data-file-print]', box).forEach(el => el.addEventListener('click', () => startFile(files[Number(el.dataset.filePrint)], storage, directory)));
+    $$('[data-file-delete]', box).forEach(el => el.addEventListener('click', () => deleteFile(files[Number(el.dataset.fileDelete)], storage, directory)));
+  }
+
+  async function loadFilesFor(storage, directory = '/', boxId, loadingId, buttonId) {
+    const box = $(boxId);
+    const loading = $(loadingId);
+    const btn = $(buttonId);
+    const label = storage === 'u-disk' ? 'Loading USB files...' : 'Loading printer files...';
+    setBoxLoading(box, loading, true, label);
     setButtonBusy(btn, true, 'Loading...');
     try {
-      const data = await printerApi(`/files?storage_media=${encodeURIComponent(storage)}&path=${encodeURIComponent(path)}&page_size=100`);
+      const data = await printerApi(`/files?storage_media=${encodeURIComponent(storage)}&path=${encodeURIComponent(directory)}&page_size=150`);
       const printerErr = printerResultError(data);
       if (printerErr) {
-        const hint = storage === 'u-disk' ? 'USB storage may be empty, missing, or not mounted.' : 'The printer rejected the file-list request.';
+        const hint = storage === 'u-disk' ? 'USB storage may be empty, missing, or not mounted.' : 'The printer rejected the local file-list request.';
         renderEmpty(box, 'File load returned a printer error.', `${printerErr}. ${hint}`);
         toast(printerErr, 'warn', 7000);
-        return;
+        return [];
       }
-      const files = arrayFromAny(data, ['file_list', 'files', 'list', 'data', 'items', 'FileList']);
-      if (!files.length) {
-        renderEmpty(box, 'No G-code files returned.', 'Try Local/USB, a different path, or open the stock portal if the firmware returns an unexpected response shape.');
-        return;
-      }
-      box.className = 'file-list';
-      box.innerHTML = files.map((file, i) => {
-        const name = fileNameOf(file);
-        const pathVal = filePathOf(file) || name;
-        const type = fileTypeOf(file);
-        const size = bytesHuman(fileSizeOf(file));
-        const time = fileTimeOf(file);
-        const meta = [type, size, time, pathVal && pathVal !== name ? pathVal : ''].filter(Boolean).join(' · ');
-        return `<div class="file-item" data-file-index="${i}">
-          <div class="file-main"><strong>${esc(name)}</strong><span>${esc(meta || 'G-code file')}</span></div>
-          <div class="file-actions">
-            <button class="button secondary tiny" type="button" data-file-info="${i}">Info</button>
-            <button class="button primary tiny" type="button" data-file-print="${i}">Print</button>
-            <button class="button danger tiny" type="button" data-file-delete="${i}">Delete</button>
-          </div>
-        </div>`;
-      }).join('');
-      $$('[data-file-info]', box).forEach(el => el.addEventListener('click', () => showFileDetail(files[Number(el.dataset.fileInfo)], storage)));
-      $$('[data-file-print]', box).forEach(el => el.addEventListener('click', () => startFile(files[Number(el.dataset.filePrint)], storage)));
-      $$('[data-file-delete]', box).forEach(el => el.addEventListener('click', () => deleteFile(files[Number(el.dataset.fileDelete)], storage)));
-      toast(`Loaded ${files.length} file(s)`, 'success');
+      let files = data?.files || arrayFromAny(data, ['file_list', 'files', 'list', 'data', 'items', 'FileList']);
+      renderFileRows(box, files, storage, directory);
+      toast(`Loaded ${files.length} ${storage === 'u-disk' ? 'USB' : 'printer'} file item(s)`, 'success');
+      return files;
     } catch (err) {
       renderEmpty(box, 'File load failed.', err.message);
       toast(err.message, 'error', 7000);
+      return [];
     } finally {
       setBoxLoading(null, loading, false);
       setButtonBusy(btn, false);
     }
   }
 
-  async function showFileDetail(file, storage) {
-    const name = fileNameOf(file);
+  async function loadPrinterFiles() {
+    fileManagerState.loadedTabs.add('printer');
+    return loadFilesFor('local', '/', '#printerFileList', '#printerFileLoadStatus', '#refreshPrinterFilesButton');
+  }
+
+  async function loadUsbFiles() {
+    fileManagerState.usbPath = normalizeDirPath(fileManagerState.usbPath || '/');
+    const label = $('#usbPathLabel');
+    if (label) label.textContent = fileManagerState.usbPath;
+    fileManagerState.loadedTabs.add('usb');
+    return loadFilesFor('u-disk', fileManagerState.usbPath, '#usbFileList', '#usbFileLoadStatus', '#refreshUsbFilesButton');
+  }
+
+  function openUsbFolder(file) {
+    const name = basename(filePathOf(file) || fileNameOf(file));
+    fileManagerState.usbPath = joinUsbPath(fileManagerState.usbPath, name);
+    loadUsbFiles();
+  }
+
+  function usbBack() {
+    const path = normalizeDirPath(fileManagerState.usbPath || '/');
+    if (path === '/') return loadUsbFiles();
+    const parts = path.split('/').filter(Boolean);
+    parts.pop();
+    fileManagerState.usbPath = parts.length ? `/${parts.join('/')}/` : '/';
+    loadUsbFiles();
+  }
+
+  async function showFileDetail(file, storage, directory = '/') {
+    const name = storage === 'u-disk' ? fullFilePath(file, storage, directory) : fileNameOf(file);
     try {
-      const data = await printerApi(`/files/detail?storage_media=${encodeURIComponent(storage)}&filename=${encodeURIComponent(name)}`);
+      const url = `/files/detail?storage_media=${encodeURIComponent(storage)}&filename=${encodeURIComponent(name)}&directory=${encodeURIComponent(directory)}`;
+      const data = await printerApi(url);
       const pretty = JSON.stringify(unwrapCommand(data), null, 2);
       toast('File info loaded. Details printed to browser console.', 'success');
       console.log('[cc2-dash-lite] file detail', name, pretty);
@@ -1653,8 +1743,9 @@
     }
   }
 
-  async function startFile(file, storage) {
-    const name = fileNameOf(file);
+  async function startFile(file, storage, directory = '/') {
+    if (fileIsFolder(file)) return;
+    const name = storage === 'u-disk' ? fullFilePath(file, storage, directory) : fileNameOf(file);
     if (!confirm(`Start printing ${name}?`)) return;
     const button = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     setButtonBusy(button, true, 'Starting...');
@@ -1668,17 +1759,109 @@
     }
   }
 
-  async function deleteFile(file, storage) {
-    const pathVal = filePathOf(file) || fileNameOf(file);
+  async function deleteFile(file, storage, directory = '/') {
+    const pathVal = storage === 'u-disk' ? fullFilePath(file, storage, directory) : (filePathOf(file) || fileNameOf(file));
     if (!confirm(`Delete ${pathVal}? This cannot be undone.`)) return;
     const button = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     setButtonBusy(button, true, 'Deleting...');
     try {
       await printerApi('/files/delete', { method: 'POST', body: JSON.stringify({ file_path: pathVal, storage_media: storage }) });
       toast('File delete command sent', 'success');
-      await loadFileList();
+      if (storage === 'u-disk') await loadUsbFiles();
+      else await loadPrinterFiles();
     } catch (err) {
       toast(err.message, 'error', 7000);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  async function loadHistoryList() {
+    const box = $('#historyList');
+    const loading = $('#historyLoadStatus');
+    const btn = $('#refreshHistoryButton');
+    setBoxLoading(box, loading, true, 'Loading print history...');
+    setButtonBusy(btn, true, 'Loading...');
+    try {
+      const data = await printerApi('/history/list?page_size=150');
+      const printerErr = printerResultError(data);
+      if (printerErr) {
+        renderEmpty(box, 'Print history returned a printer error.', printerErr);
+        toast(printerErr, 'warn', 7000);
+        return;
+      }
+      const rows = data?.history || arrayFromAny(data, ['history_task_list', 'HistoryTaskList', 'task_list', 'items', 'list']);
+      if (!rows.length) {
+        renderEmpty(box, 'No print history returned.', 'The printer did not return any saved history rows. The stock portal uses method 1036 for this section.');
+        return;
+      }
+      box.className = 'file-list';
+      box.innerHTML = rows.map((item, i) => {
+        const name = historyNameOf(item);
+        const id = historyIdOf(item);
+        const start = item?.begin_time || item?.BeginTime || item?.create_time || item?.CreateTime;
+        const end = item?.end_time || item?.EndTime;
+        const size = bytesHuman(item?.file_size ?? item?.FileSize ?? item?.size ?? item?.Size);
+        const status = item?.task_status ?? item?.TaskStatus ?? item?.status ?? item?.Status ?? '';
+        const video = item?.has_timelapse || item?.time_lapse_video_status ? 'timelapse' : '';
+        const meta = [size, fmtDate(start), end ? `ended ${fmtDate(end)}` : '', status ? `status ${status}` : '', video, `ID ${id ?? '-'}`].filter(Boolean).join(' · ');
+        return `<div class="file-item" data-history-index="${i}">
+          <div class="file-main"><strong>${esc(name)}</strong><span>${esc(meta)}</span></div>
+          <div class="file-actions">
+            <button class="button secondary tiny" type="button" data-history-info="${i}">Info</button>
+            <button class="button primary tiny" type="button" data-history-reprint="${i}">Reprint</button>
+            <button class="button danger tiny" type="button" data-history-delete="${i}">Delete</button>
+          </div>
+        </div>`;
+      }).join('');
+      $$('[data-history-info]', box).forEach(el => el.addEventListener('click', () => showHistoryInfo(rows[Number(el.dataset.historyInfo)])));
+      $$('[data-history-reprint]', box).forEach(el => el.addEventListener('click', () => reprintHistory(rows[Number(el.dataset.historyReprint)])));
+      $$('[data-history-delete]', box).forEach(el => el.addEventListener('click', () => deleteHistory(rows[Number(el.dataset.historyDelete)])));
+      toast(`Loaded ${rows.length} history row(s)`, 'success');
+    } catch (err) {
+      renderEmpty(box, 'Print history load failed.', err.message);
+      toast(err.message, 'error', 7000);
+    } finally {
+      setBoxLoading(null, loading, false);
+      setButtonBusy(btn, false);
+    }
+  }
+
+  function showHistoryInfo(item) {
+    const name = historyNameOf(item);
+    const pretty = JSON.stringify(item?.raw || item, null, 2);
+    console.log('[cc2-dash-lite] history detail', name, pretty);
+    alert(`Print history details for ${name}:\n\n${pretty.slice(0, 1800)}${pretty.length > 1800 ? '\n\n…truncated; see browser console for full detail.' : ''}`);
+  }
+
+  async function reprintHistory(item) {
+    const name = historyNameOf(item);
+    if (!name || !String(name).toLowerCase().includes('.g')) return toast('This history row does not include a reusable G-code filename.', 'warn');
+    if (!confirm(`Try to reprint ${name}? This only works if the source file still exists on local printer storage.`)) return;
+    const button = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+    setButtonBusy(button, true, 'Starting...');
+    try {
+      await printerApi('/files/start', { method: 'POST', body: JSON.stringify({ filename: name, storage_media: 'local', start_layer: 0, calibration: false, timelapse: false }) });
+      toast('Reprint command sent', 'success');
+    } catch (err) {
+      toast(err.message, 'error', 9000);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  }
+
+  async function deleteHistory(item) {
+    const id = historyIdOf(item);
+    if (id === undefined || id === null || id === '') return toast('No task ID found for delete.', 'warn');
+    if (!confirm(`Delete history record ${id}?`)) return;
+    const button = document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+    setButtonBusy(button, true, 'Deleting...');
+    try {
+      await printerApi('/history/delete', { method: 'POST', body: JSON.stringify({ task_ids: [id] }) });
+      toast('History delete command sent', 'success');
+      await loadHistoryList();
+    } catch (err) {
+      toast(err.message, 'error', 9000);
     } finally {
       setButtonBusy(button, false);
     }
@@ -1726,8 +1909,6 @@
     setBoxLoading(box, loading, true, 'Loading timelapse records...');
     setButtonBusy(btn, true, 'Loading...');
     try {
-      // The stock portal's Video List is filtered from Print History rows with
-      // TimeLapseVideoStatus 1/2. Backend does the same filtering and normalizing.
       const data = await printerApi('/timelapse');
       const printerErr = printerResultError(data);
       if (printerErr) {
@@ -1754,14 +1935,7 @@
         const start = item?.begin_time || item?.BeginTime || item?.create_time || item?.CreateTime || item?.start_time || item?.StartTime;
         const size = bytesHuman(timelapseSizeOf(item));
         const duration = timelapseDurationOf(item);
-        const meta = [
-          size,
-          fmtDate(start),
-          duration !== '' && duration !== undefined && duration !== null ? `${duration}s` : '',
-          statusLabel,
-          url || rawUrl ? 'download ready' : 'export needed',
-          `ID ${id ?? '-'}`,
-        ].filter(Boolean).join(' · ');
+        const meta = [size, fmtDate(start), duration !== '' && duration !== undefined && duration !== null ? `${duration}s` : '', statusLabel, url || rawUrl ? 'download ready' : 'export needed', `ID ${id ?? '-'}`].filter(Boolean).join(' · ');
         return `<div class="file-item" data-timelapse-index="${i}">
           <div class="file-main"><strong>${esc(name)}</strong><span>${esc(meta)}</span></div>
           <div class="file-actions">
@@ -1801,7 +1975,7 @@
     try {
       const data = await printerApi('/timelapse/export', { method: 'POST', body: JSON.stringify({ url: token }) });
       const result = unwrapCommand(data);
-      const url = result?.url || result?.Url || result?.time_lapse_video_url || result?.TimeLapseVideoUrl;
+      const url = result?.download_url || result?.DownloadUrl || result?.url || result?.Url || result?.time_lapse_video_url || result?.TimeLapseVideoUrl;
       toast('Timelapse export command sent', 'success');
       if (url) window.open(url, '_blank', 'noopener,noreferrer');
       else await loadTimelapseList();
@@ -1829,16 +2003,35 @@
     }
   }
 
+  function activateFileTab(tab) {
+    $$('[data-file-tab]').forEach(b => b.classList.toggle('active', b.dataset.fileTab === tab));
+    $$('.file-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
+    if (tab === 'printer' && !fileManagerState.loadedTabs.has('printer')) loadPrinterFiles();
+    if (tab === 'usb' && !fileManagerState.loadedTabs.has('usb')) loadUsbFiles();
+    if (tab === 'history' && !fileManagerState.loadedTabs.has('history')) {
+      fileManagerState.loadedTabs.add('history');
+      loadHistoryList();
+    }
+    if (tab === 'videos' && !fileManagerState.loadedTabs.has('videos')) {
+      fileManagerState.loadedTabs.add('videos');
+      loadTimelapseList();
+    }
+  }
+
   function initFiles() {
-    $$('[data-file-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const tab = btn.dataset.fileTab;
-        $$('[data-file-tab]').forEach(b => b.classList.toggle('active', b === btn));
-        $$('.file-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === tab));
-      });
+    $$('[data-file-tab]').forEach(btn => btn.addEventListener('click', () => activateFileTab(btn.dataset.fileTab)));
+    $('#refreshPrinterFilesButton')?.addEventListener('click', loadPrinterFiles);
+    $('#refreshUsbFilesButton')?.addEventListener('click', loadUsbFiles);
+    $('#usbBackButton')?.addEventListener('click', usbBack);
+    $('#refreshHistoryButton')?.addEventListener('click', () => {
+      fileManagerState.loadedTabs.add('history');
+      loadHistoryList();
     });
-    $('#refreshFilesButton')?.addEventListener('click', loadFileList);
-    $('#refreshTimelapseButton')?.addEventListener('click', loadTimelapseList);
+    $('#refreshTimelapseButton')?.addEventListener('click', () => {
+      fileManagerState.loadedTabs.add('videos');
+      loadTimelapseList();
+    });
+    activateFileTab('printer');
   }
 
   function initFilaments() {

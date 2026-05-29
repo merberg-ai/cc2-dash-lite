@@ -8,6 +8,7 @@ import time
 import uuid
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, quote, urlparse
 
 import httpx
 import requests
@@ -61,6 +62,8 @@ from .cc2.commands import (
     file_detail_params,
     file_list_params,
     file_thumbnail_params,
+    normalize_file_dir,
+    normalize_storage_media,
     start_print_params,
     timelapse_export_params,
     auto_refill_params,
@@ -1718,7 +1721,18 @@ async def api_filaments_auto_refill(printer_id: str, body: FilamentAutoRefillReq
 
 @app.get("/api/printers/{printer_id}/files")
 async def api_files(printer_id: str, path: str = "/", storage_media: str = "local", page: int = Query(1, ge=1), page_size: int = Query(50, ge=1, le=200), offset: Optional[int] = None, limit: Optional[int] = None):
-    return await asyncio.to_thread(_send_command, printer_id, GET_FILE_LIST, file_list_params(path, storage_media, page, page_size, offset, limit), True, 15.0, False)
+    media = normalize_storage_media(storage_media)
+    directory = normalize_file_dir(path)
+    payload = await asyncio.to_thread(
+        _send_command,
+        printer_id,
+        GET_FILE_LIST,
+        file_list_params(directory, media, page, page_size, offset, limit),
+        True,
+        15.0,
+        False,
+    )
+    return _normalize_file_response(payload, media, directory)
 
 
 @app.get("/api/printers/{printer_id}/files/detail")
@@ -1750,7 +1764,7 @@ async def api_file_start(printer_id: str, body: StartPrintRequest):
 
 @app.get("/api/printers/{printer_id}/disk")
 async def api_disk(printer_id: str, storage_media: str = "local"):
-    return await asyncio.to_thread(_send_command, printer_id, GET_DISK_INFO, {"storage_media": storage_media}, True, 10.0)
+    return await asyncio.to_thread(_send_command, printer_id, GET_DISK_INFO, {"storage_media": normalize_storage_media(storage_media)}, True, 10.0)
 
 
 @app.get("/api/printers/{printer_id}/canvas")
@@ -1817,6 +1831,165 @@ def _as_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _error_code(root: Any) -> int:
+    if not isinstance(root, dict):
+        return 0
+    return _as_int(root.get("error_code") or root.get("ErrorCode"), 0)
+
+
+def _total_from_root(root: Any, fallback: int = 0) -> int:
+    if not isinstance(root, dict):
+        return fallback
+    return _as_int(_field(root, "total", "Total", "total_count", "TotalCount", "count", "Count", default=fallback), fallback)
+
+
+def _is_gcode_name(name: Any) -> bool:
+    return str(name or "").strip().lower().endswith((".gcode", ".gco", ".g"))
+
+
+def _is_folder_record(item: dict[str, Any]) -> bool:
+    kind = str(_field(item, "type", "file_type", "FileType", "fileType", "kind", "Kind", default="") or "").lower()
+    if kind in {"folder", "dir", "directory"}:
+        return True
+    value = _field(item, "is_dir", "IsDir", "isDirectory", "is_directory", "is_folder", "IsFolder", default=None)
+    if isinstance(value, bool):
+        return value
+    if value not in (None, ""):
+        return str(value).strip().lower() in {"1", "true", "yes", "folder", "dir"}
+    name = str(_field(item, "filename", "file_name", "fileName", "FileName", "name", "Name", "path", "Path", default="") or "")
+    return bool(name and name.endswith("/"))
+
+
+def _basename_from_path(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    cleaned = text.rstrip("/")
+    if not cleaned:
+        return "/"
+    return cleaned.split("/")[-1]
+
+
+def _normalize_file_record(item: Any, storage_media: str, directory: str = "/") -> dict[str, Any] | None:
+    media = normalize_storage_media(storage_media)
+    directory = normalize_file_dir(directory)
+    if isinstance(item, str):
+        raw_name = item
+        raw_path = item
+        is_folder = item.endswith("/")
+        raw_item: Any = item
+        size = 0
+        created = modified = ""
+    elif isinstance(item, dict):
+        raw_name = _field(item, "filename", "file_name", "fileName", "FileName", "name", "Name", default="")
+        raw_path = _field(item, "file_path", "filePath", "path", "Path", "url", "Url", default=raw_name)
+        if not raw_name:
+            raw_name = raw_path
+        is_folder = _is_folder_record(item)
+        raw_item = item
+        size = _field(item, "size", "Size", "file_size", "FileSize", "FileSizeBytes", "fileSize", default=0)
+        created = _field(item, "create_time", "CreateTime", "ctime", "CTime", "begin_time", "BeginTime", default="")
+        modified = _field(item, "mtime", "MTime", "modified_time", "ModifyTime", "update_time", "UpdateTime", default="")
+    else:
+        return None
+    if not raw_name:
+        return None
+    name = _basename_from_path(raw_name)
+    if name in {"", "/"}:
+        name = _basename_from_path(raw_path)
+    file_path = str(raw_path or raw_name or "")
+    if media == "u-disk" and file_path and not file_path.startswith("/"):
+        if directory and directory != "/":
+            file_path = f"{directory.rstrip('/')}/{file_path.lstrip('/')}"
+        else:
+            file_path = "/" + file_path.lstrip("/")
+    return {
+        "filename": name,
+        "name": name,
+        "file_path": file_path or name,
+        "type": "folder" if is_folder else "file",
+        "is_dir": bool(is_folder),
+        "is_gcode": _is_gcode_name(name) or _is_gcode_name(file_path),
+        "storage_media": media,
+        "dir": directory,
+        "size": size,
+        "file_size": size,
+        "create_time": created,
+        "modified_time": modified,
+        "print_time": _field(raw_item, "print_time", "PrintTime", "duration", "Duration", default="") if isinstance(raw_item, dict) else "",
+        "layer": _field(raw_item, "layer", "Layer", "total_layer", "TotalLayer", default="") if isinstance(raw_item, dict) else "",
+        "raw": raw_item,
+    }
+
+
+def _extract_file_items(root: Any) -> list[Any]:
+    return _first_array(root, [
+        "file_list", "FileList", "fileList", "files", "Files", "items", "Items",
+        "list", "List", "data", "Data", "FileData", "file_data",
+    ])
+
+
+def _normalize_file_response(payload: Any, storage_media: str, path: str) -> dict[str, Any]:
+    media = normalize_storage_media(storage_media)
+    directory = normalize_file_dir(path)
+    root = _unwrap_command_payload(payload)
+    if isinstance(root, dict) and _error_code(root) != 0:
+        return {"ok": False, "result": root, "files": [], "total": 0, "storage_media": media, "path": directory}
+    raw_items = _extract_file_items(root)
+    files = [f for f in (_normalize_file_record(item, media, directory) for item in raw_items) if f]
+    files.sort(key=lambda f: (0 if f.get("is_dir") else 1, str(f.get("filename") or "").lower()))
+    result = {
+        "error_code": 0,
+        "storage_media": media,
+        "path": directory,
+        "offset": _as_int(_field(root, "offset", "Offset", default=0), 0) if isinstance(root, dict) else 0,
+        "total": _total_from_root(root, len(files)),
+        "file_list": files,
+    }
+    return {"ok": True, "result": result, "files": files, "total": result["total"], "storage_media": media, "path": directory, "raw": root}
+
+
+def _normalize_history_record(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    task_id = _field(item, "task_id", "TaskId", "taskId", "id", "Id", default="")
+    name = _field(item, "task_name", "TaskName", "filename", "FileName", "file_name", "name", "Name", default="")
+    begin = _field(item, "begin_time", "BeginTime", "start_time", "StartTime", "create_time", "CreateTime", default="")
+    end = _field(item, "end_time", "EndTime", "finish_time", "FinishTime", default="")
+    size = _field(item, "file_size", "FileSize", "size", "Size", "FileSizeBytes", default=0)
+    status = _field(item, "task_status", "TaskStatus", "status", "Status", default="")
+    video_status = _as_int(_field(item, "time_lapse_video_status", "TimeLapseVideoStatus", "video_status", "VideoStatus", default=0), 0)
+    video_url = _field(item, "time_lapse_video_url", "TimeLapseVideoUrl", "video_url", "VideoUrl", "url", "Url", default="")
+    return {
+        "task_id": task_id,
+        "id": task_id,
+        "task_name": name or (f"Task {task_id}" if task_id not in (None, "") else "History task"),
+        "filename": name,
+        "begin_time": begin,
+        "end_time": end,
+        "task_status": status,
+        "file_size": size,
+        "print_time": _field(item, "print_time", "PrintTime", "duration", "Duration", default=""),
+        "total_layer": _field(item, "total_layer", "TotalLayer", "layer", "Layer", default=""),
+        "filament_used": _field(item, "filament_used", "FilamentUsed", "total_filament_used", "TotalFilamentUsed", default=""),
+        "time_lapse_video_status": video_status,
+        "time_lapse_video_url": video_url,
+        "has_timelapse": bool(video_status in (1, 2) or video_url),
+        "is_gcode": _is_gcode_name(name),
+        "raw": item,
+    }
+
+
+def _sort_history(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(row: dict[str, Any]) -> float:
+        raw = row.get("begin_time") or ""
+        try:
+            return float(raw)
+        except Exception:
+            return 0.0
+    return sorted(rows, key=key, reverse=True)
+
+
 def _absolute_printer_url(pcfg: Any, url: str) -> str:
     if not url:
         return ""
@@ -1829,6 +2002,51 @@ def _absolute_printer_url(pcfg: Any, url: str) -> str:
     return f"http://{pcfg.host}{url}"
 
 
+def _download_file_name_from_token(token: str) -> str:
+    """Return the printer download file_name from a stock portal video token/URL.
+
+    The stock Elegoo portal does not open TimeLapseVideoUrl directly. It calls:
+      http://<printer>/download?X-Token=<pin>&file_name=<TimeLapseVideoUrl>
+    Some firmware builds may already return a /download?... URL; normalize both
+    shapes to the raw file_name so cc2-dash can proxy it reliably.
+    """
+    token = str(token or "").strip()
+    if not token:
+        return ""
+    try:
+        parsed = urlparse(token)
+        qs = parse_qs(parsed.query or "")
+        for key in ("file_name", "filename", "file", "name"):
+            values = qs.get(key)
+            if values:
+                return str(values[0] or "").strip()
+        # Absolute URLs that are not /download links are still usually file paths
+        # on the printer. Keep path+query minus the host so /download receives the
+        # printer's expected file token.
+        if parsed.scheme and parsed.netloc:
+            return (parsed.path or "").lstrip("/") or token
+    except Exception:
+        pass
+    return token
+
+
+def _stock_download_url(pcfg: Any, file_name: str, media: str = "local") -> str:
+    media = str(media or "local").lower()
+    endpoint = {
+        "local": "/download",
+        "u-disk": "/download/udisk",
+        "udisk": "/download/udisk",
+        "usb": "/download/udisk",
+        "sdcard": "/download/sdcard",
+        "sd-card": "/download/sdcard",
+    }.get(media, "/download")
+    return f"http://{pcfg.host}{endpoint}?X-Token={quote(str(pcfg.access_code or ''), safe='')}&file_name={quote(str(file_name or ''), safe='')}"
+
+
+def _timelapse_proxy_download_url(printer_id: str, file_name: str, media: str = "local") -> str:
+    return f"/api/printers/{quote(str(printer_id), safe='')}/timelapse/download?file_name={quote(str(file_name or ''), safe='')}&media={quote(str(media or 'local'), safe='')}"
+
+
 def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -1836,6 +2054,7 @@ def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
     name = _field(item, "task_name", "TaskName", "filename", "FileName", "name", "Name", default="")
     status = _as_int(_field(item, "time_lapse_video_status", "TimeLapseVideoStatus", "video_status", "VideoStatus", default=0), 0)
     url = str(_field(item, "time_lapse_video_url", "TimeLapseVideoUrl", "video_url", "VideoUrl", "url", "Url", default="") or "")
+    download_file_name = _download_file_name_from_token(url)
     size = _field(item, "time_lapse_video_size", "TimeLapseVideoSize", "video_size", "VideoSize", "file_size", "FileSize", "size", "Size", default=0)
     duration = _field(item, "time_lapse_video_duration", "TimeLapseVideoDuration", "video_duration", "VideoDuration", "duration", "Duration", default=0)
     begin = _field(item, "begin_time", "BeginTime", "create_time", "CreateTime", "start_time", "StartTime", "ctime", "CTime", default="")
@@ -1853,7 +2072,9 @@ def _normalize_timelapse_record(item: Any, pcfg: Any) -> dict[str, Any] | None:
         "task_status": _field(item, "task_status", "TaskStatus", "status", "Status", default=""),
         "time_lapse_video_status": status,
         "time_lapse_video_url": url,
-        "download_url": _absolute_printer_url(pcfg, url),
+        "download_file_name": download_file_name,
+        "download_url": _timelapse_proxy_download_url(pcfg.id, download_file_name) if download_file_name else "",
+        "direct_download_url": _stock_download_url(pcfg, download_file_name) if download_file_name else "",
         "time_lapse_video_size": size,
         "time_lapse_video_duration": duration,
         "raw": item,
@@ -1893,6 +2114,33 @@ def _try_history_details(printer_id: str, ids: list[Any]) -> list[Any]:
         except Exception:
             continue
     return []
+
+
+@app.get("/api/printers/{printer_id}/history/list")
+async def api_history_list(printer_id: str, page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=300), include_details: bool = Query(False)):
+    payload = await asyncio.to_thread(_send_command, printer_id, GET_HISTORY_TASK, {}, True, 20.0, False)
+    root = _unwrap_command_payload(payload)
+    if isinstance(root, dict) and _error_code(root) != 0:
+        return {"ok": False, "result": root, "history": [], "total": 0}
+    items = _extract_history_items(root)
+    detail_items: list[Any] = []
+    if include_details and items:
+        ids = [_field(item, "task_id", "TaskId", "taskId", "id", "Id") for item in items if isinstance(item, dict)]
+        detail_items = await asyncio.to_thread(_try_history_details, printer_id, ids[:80])
+        if detail_items:
+            items = detail_items
+    rows = [row for row in (_normalize_history_record(item) for item in items) if row]
+    rows = _sort_history(rows)
+    start = max(0, (int(page or 1) - 1) * int(page_size or 100))
+    end = start + int(page_size or 100)
+    result = {
+        "error_code": 0,
+        "total": len(rows),
+        "raw_history_total": len(_extract_history_items(root)),
+        "raw_detail_total": len(detail_items),
+        "history_task_list": rows[start:end],
+    }
+    return {"ok": True, "result": result, "history": rows[start:end], "total": len(rows)}
 
 
 @app.get("/api/printers/{printer_id}/history")
@@ -1941,9 +2189,86 @@ async def api_timelapse(printer_id: str):
     return {"ok": True, "result": result, "videos": videos, "total": len(videos)}
 
 
+@app.get("/api/printers/{printer_id}/timelapse/download")
+async def api_timelapse_download(printer_id: str, file_name: str = Query(..., min_length=1), media: str = Query("local")):
+    pcfg = _portal_target(printer_id)
+    if not pcfg:
+        raise HTTPException(404, "Printer not configured")
+    file_name = _download_file_name_from_token(file_name)
+    if not file_name:
+        raise HTTPException(400, "Missing timelapse file name")
+
+    media_key = str(media or "local").lower()
+    endpoint = {
+        "local": "/download",
+        "u-disk": "/download/udisk",
+        "udisk": "/download/udisk",
+        "usb": "/download/udisk",
+        "sdcard": "/download/sdcard",
+        "sd-card": "/download/sdcard",
+    }.get(media_key, "/download")
+    target = f"http://{pcfg.host}{endpoint}"
+    params = {"X-Token": pcfg.access_code, "file_name": file_name}
+
+    client = httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=8.0), follow_redirects=True)
+    try:
+        req = client.build_request("GET", target, params=params)
+        resp = await client.send(req, stream=True)
+    except Exception as exc:
+        await client.aclose()
+        raise HTTPException(502, f"Printer timelapse download failed: {exc}") from exc
+
+    if resp.status_code >= 400:
+        text = ""
+        try:
+            text = (await resp.aread()).decode("utf-8", errors="replace")[:300]
+        except Exception:
+            text = ""
+        await resp.aclose()
+        await client.aclose()
+        detail = text or f"Printer returned HTTP {resp.status_code} for {endpoint}"
+        raise HTTPException(resp.status_code, detail)
+
+    safe_name = Path(file_name).name or "timelapse.mp4"
+    safe_name = safe_name.replace("\r", "_").replace("\n", "_")
+    headers: dict[str, str] = {}
+    for key in ("content-length", "accept-ranges", "etag", "last-modified"):
+        if key in resp.headers:
+            headers[key] = resp.headers[key]
+    headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
+    media_type = resp.headers.get("content-type") or "video/mp4"
+
+    async def body_iter():
+        try:
+            async for chunk in resp.aiter_bytes():
+                if chunk:
+                    yield chunk
+        finally:
+            await resp.aclose()
+            await client.aclose()
+
+    return StreamingResponse(body_iter(), media_type=media_type, headers=headers)
+
+
 @app.post("/api/printers/{printer_id}/timelapse/export")
 async def api_timelapse_export(printer_id: str, body: TimelapseExportRequest):
-    return await asyncio.to_thread(_send_command, printer_id, GET_TIME_LAPSE_VIDEO_LIST, timelapse_export_params(body.url), True, 180.0)
+    token = _download_file_name_from_token(body.url)
+    data = await asyncio.to_thread(_send_command, printer_id, GET_TIME_LAPSE_VIDEO_LIST, timelapse_export_params(token), True, 180.0)
+    pcfg = _portal_target(printer_id)
+    root = _unwrap_command_payload(data)
+    returned = ""
+    if isinstance(root, dict):
+        returned = str(_field(root, "url", "Url", "download_url", "DownloadUrl", "time_lapse_video_url", "TimeLapseVideoUrl", default="") or "")
+    download_file_name = _download_file_name_from_token(returned or token)
+    if pcfg and download_file_name:
+        data["download_file_name"] = download_file_name
+        data["download_url"] = _timelapse_proxy_download_url(pcfg.id, download_file_name)
+        data["direct_download_url"] = _stock_download_url(pcfg, download_file_name)
+        if isinstance(data.get("result"), dict):
+            data["result"]["download_file_name"] = download_file_name
+            data["result"]["download_url"] = data["download_url"]
+            data["result"]["direct_download_url"] = data["direct_download_url"]
+    return data
 
 
 @app.post("/api/printers/{printer_id}/history/delete")
